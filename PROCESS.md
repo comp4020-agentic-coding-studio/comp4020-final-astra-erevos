@@ -1,96 +1,121 @@
 # Process overview
 
-## How to read this
-
 This file grows across the project as decisions get made and commits land.
-Each entry is a decision, not a task on a list — where it matters, it says
-what the alternative was and why it lost. Commit links get added once
-there's a commit to point at; the entries below are the decisions made
-before any app code exists yet.
+Each entry is a decision or an event, not a task list — where it matters, it
+says what the alternative was, or what went wrong and how it got fixed. This
+update covers the whole run so far, initial concept through the crit 8 deploy.
 
-The project is Toad Live: a resident-maintained live status board for Toad
-Hall's shared laundry. `README.md` and `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md`
-carry the concept; this file carries the reasoning behind how it's built.
+## The project
 
-## Decision record
+Toad Live is a resident-maintained live status board for Toad Hall's shared
+laundry: five real rooms (A/B, C, E, F, G — D has none; its ground floor is
+the Anton Aalbers Room instead), one washer and one dryer each, ten machines
+total. It started from a real, personal complaint: there's no shared view of
+which machine is free, and a human report is only trustworthy for as long as
+it stays fresh. The audience (current Toad Hall residents, not a generic
+public), the laundry facts, the four real machine states (available, in-use,
+out-of-order, unknown), out-of-order's stickiness, and the
+washer-display-vs-dryer-estimate distinction for remaining time were all
+interrogated in conversation and landed as the project's design anchor and
+first decision record in
+[`4028255`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/4028255).
 
-### Stack: Astro
+## Stack, and why crit 8 is persistence-only
 
-The course default from C2 onward, and there's no reason for this project to
-be the exception: it keeps mostly-static pages cheap while still allowing a
-handful of server-rendered API routes for the small dynamic surface this app
-actually needs (reading and writing machine status). That fits the fixed
-deploy shape — one shared-cpu-1x machine, 256MB — far more comfortably than a
-heavier full SSR framework would, and it means the spec harness, CI and
-Dockerfile conventions the template already assumes don't need reinventing.
+Astro was chosen as the stack
+([`4028255`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/4028255)):
+it keeps mostly-static pages cheap while still allowing the small dynamic
+surface this app needs — reading and writing machine status — and it fits
+the fixed 256MB/one-machine shape far more comfortably than a heavier SSR
+framework. Storage is SQLite, via Node's built-in `node:sqlite`, on the one
+thing the Fly setup actually persists: the `/data` volume. That avoids a
+native dependency and a separate database server the course setup doesn't
+provide.
 
-The alternative considered was a bare Node server with hand-written routing.
-Rejected for now: it would save little at this scale and cost the Astro
-tooling the rest of the course specs assume. If the app's server-side needs
-grow past what Astro's routes comfortably do (the real-time layer at the next
-crit is the likely test of this), that's a new decision record, not a silent
-drift.
+Crit 8's own spec says the real-time layer can wait until "All at once" at
+the next crit, so real-time was deliberately not built this week — the one
+thing crit 8 proves is that a stranger's report to a machine survives their
+own return visit. Building it now would have spent the week on something
+that isn't part of crit 8's proof-of-life target. The five-room, ten-machine scope was a later
+refinement of the original plan (a single room): since the layout turned out
+fully uniform and already known, building all five cost barely more than
+building one, and demonstrates a real status layer rather than a
+one-room toy.
 
-### Storage: SQLite on `/data`
+## The first persistence slice
 
-The fixed infrastructure gives exactly one thing that survives a restart or
-redeploy: the `/data` volume. There's no separate database server in the
-course setup, and running one would be its own app outside this one. SQLite
-is a single file on that volume, has no server process to fit into the
-256MB budget, and is more than enough for a resident community of this size
-reading and writing machine status. It also gives the freshness/decay logic
-(still being designed — see below) a natural place to compute from stored
-timestamps rather than needing an external scheduler.
+[`6ffddd8`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/6ffddd8)
+is where the app became an app: Astro in server mode via `@astrojs/node`, a
+`machines` table seeded with the ten real machines, a `GET`/`PATCH
+/api/machines/:id` route, and a persistence test covering crit 8's core
+mechanically checkable persistence interaction — a status update checked by
+two independent HTTP requests, the same shape a stranger's return visit
+takes. The busybox placeholder was replaced entirely; nothing
+from it survives except the fixed Dockerfile/fly.toml contract it was
+proving.
 
-A flat JSON file on the same volume was the other option, and would have
-worked for Crit 8's schema alone. SQLite was chosen anyway because the
-schema is already known to grow (history, other shared spaces, verified
-identity), and a real query layer earns its cost sooner rather than later.
+## From engineering prototype to a dashboard, in two passes
 
-### Crit 8 scope: persistence, not real-time
+The first working version was, by design, a stack of raw `<select>`s and
+buttons — functionality before form. Once I'd manually tested it end to end
+(all five rooms, a washer and a dryer update, reload-persistence) and
+confirmed the interaction worked, I asked for a first visual pass: a warm,
+communal identity rather than a generic admin panel, colour-coded status
+badges with redundant icon+text (in-use reads as a neutral occupied blue,
+not an alarming amber — nothing's wrong when a machine is just running),
+prominent remaining time, and reporting moved behind a disclosure so the
+default view reads rather than edits.
 
-The final-project brief places the real-time requirement at the next crit
-("All at once"), and Crit 8's own spec says explicitly that "the feature
-list, the real-time layer and the polish can all wait." Building real-time
-sync now would be building ahead of what's being marked this week, at the
-cost of time better spent on the one thing Crit 8 actually checks: that a
-stranger's change to a machine's status is still there when they, or anyone
-else, come back. So Crit 8 ships with no WebSocket/SSE layer at all — the
-page reflects current state on load, full stop — and that absence is a
-decision, not an oversight.
+After manually reviewing that pass I asked for a second, narrower refinement
+rather than a further redesign: more deliberate use of desktop width with
+the five blocks centred as a balanced 3+2 rather than grid-stretched, a
+consistent inline-SVG icon pair for washer/dryer, "Block" demoted from a
+card to a zone label so only the machine itself reads as a card, a more
+obviously tappable "Update status" chip, and a distinctive stamped
+hazard-stripe treatment for out-of-order, evoking the real taped-up notices
+at Toad Hall. Both passes, once manually approved, landed together in
+[`ce3c5aa`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/ce3c5aa) —
+no schema or persistence change in either.
 
-### Crit 8 scope: all five laundry rooms, not one
+## Verifying persistence for real, and the incident that came with it
 
-The original plan was a single laundry room as the smallest possible slice.
-That changed once the layout was confirmed: all five rooms (A/B, C, E, F, G)
-have the identical shape — one washer, one dryer each — so building one room
-and building all five costs almost the same amount of schema and UI work,
-and five rooms make a far more honest demonstration that this is a real
-status layer rather than a one-room toy. The interaction model doesn't
-broaden: it's still one system, seeded with its real, already-known data.
+Local tests proving persistence are one thing; the brief's actual promise is
+that it survives a real restart or redeploy on Fly. Verifying that meant:
+deploy, `PATCH` a machine to a known state, redeploy again, and check the
+exact same fields come back.
 
-### Decay thresholds: deliberately left unresolved
+The first attempt surfaced a real bug, not a hypothetical one: a malformed
+timestamp — a shell date-formatting mistake on my end, not something the UI
+itself can send — got written to `started_at` unvalidated. `node:sqlite`
+throws rather than silently truncate when it reads an `INTEGER` back that's
+larger than `Number.MAX_SAFE_INTEGER`, so that one row started 500ing on
+*every* subsequent `GET` or `PATCH`, not just the request that caused it.
+Diagnosing it meant reading the live `flyctl logs` trace back to the exact
+line, confirming the cause by reproducing it locally, and repairing the live
+row directly via `flyctl ssh console`, since the volume itself, not just the
+code, needed fixing.
 
-The confirmed → stale → expired model is settled (see README's "honest about
-age" claim), but the actual minute thresholds are not, on purpose. Neither machine type has a fixed cycle
-length to ground a threshold in: a washer displays its own remaining time
-each cycle (read and reported by a resident), and a dryer has no display at
-all, so its timing is only ever a resident's estimate when one is given. So
-the threshold has to come from direct observation of how long a report
-stays useful to residents, not a machine specification. Picking numbers
-now, before that information exists, would
-be guessing at exactly the kind of over-claimed certainty this app's own
-definition of good argues against. Crit 8 therefore shows raw elapsed time
-without committing to stale/expired bands; the schema stores what a future
-decay function needs so adding it later isn't a schema change.
+The durable fix, in
+[`3c0b63f`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/3c0b63f),
+is the actual lesson: `PATCH` now rejects any `startedAt`/`expectedEndAt`
+that isn't a safe, positive integer with a 400 before it reaches SQLite, a
+regression test asserts exactly this case, and `CLAUDE.md` carries the rule
+generally — any future numeric field from a client needs the same guard, not
+a try/catch after the fact. This is what this file is supposed to hold: an
+agent-directed system hit a real failure in the field, and the fix is
+durable — code, test, and rule — not a retry.
 
-### Identity: session pseudonym now, shaped to grow into verified accounts
+With that fix deployed, the redeploy check ran clean: a known report to
+`g-dryer` came back byte-identical — `startedAt`, `expectedEndAt`,
+`confirmedAt`, `reporterId` all unchanged — after a real image redeploy (the
+machine's version number moved), which is the actual proof the `/data`
+volume does what `fly.toml` claims it does.
 
-Crit 8 doesn't require telling two people apart — its one proof is a single
-stranger's report surviving their own return visit. So identity for now is a
-bare anonymous session token, generated client-side, attached to each report
-so a change has *some* attribution without a login flow. The final vision
-(see `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md`, §2) is invite/admin-verified
-residents shown under a pseudonym in the interface — the session-token field
-is deliberately shaped so that later becomes "swap what populates this field"
-rather than a schema migration.
+## What's still ahead
+
+Real-time sync (crit 9), decay/staleness thresholds (pending real
+cycle-time data, not guessed), verified resident identity, and every
+non-laundry space stay deliberately out of scope — see
+`notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` for the fuller list. README's own
+citations for its definition of good are the next piece of process still
+missing.

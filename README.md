@@ -1,63 +1,80 @@
 # Toad Live
 
-## What this is
+Toad Live is a live status board for Toad Hall's shared laundry — five real
+rooms, ten machines — kept current by whoever last walked past and looked,
+not by sensors.
 
-Toad Live is a resident-maintained live status board for Toad Hall's shared
-laundry: five rooms, ten machines, kept current not by sensors but by
-whoever last walked past and looked.
+## Why this, and why for Toad Hall specifically
 
-## What good means here (v0.1 — rough, and expected to change)
+The obvious answer to this brief is generic laundry software, built to
+scale to any hall. That's not the bet here. Clay Shirky's
+[*Situated Software*](https://gwern.net/doc/technology/2004-03-30-shirky-situatedsoftware.html)
+argues that scalability and generality are choices, not automatic virtues —
+his example is an app built for one specific schoolteacher, not
+"schoolteachers everywhere." Robin Sloan makes a related but different case
+in [*An App Can Be a Home-Cooked Meal*](https://www.robinsloan.com/notes/home-cooked-app/):
+a small app made for people you actually know can be worth building even
+though it will never be a product. Toad Live sits between their two
+examples — bigger than
+Sloan's four-person family app, smaller than a platform meant for any
+resident anywhere — sized to one bounded community: the people who live
+here now.
 
-Good does **not** mean complete. This is a first draft of what good means for
-this app, written before most of it exists, and it's meant to change as the
-app meets real residents.
+That's a real constraint, not just a motivation: the app assumes a reader
+already knows what "Block C" means, and skips onboarding, a general
+facility taxonomy, and accounts, because it's answering a question one
+known group already has.
 
-For a resident-maintained status board, good means:
+## Useful at a glance, or it's not useful at all
 
-- **Honest about age, not just state.** A "washer free" reported 40 minutes
-  ago is a different fact from one reported 40 seconds ago, even though both
-  currently say "free." The app should never present an old human report as
-  if it were fresh. Exactly how old is "too old" is still an open question —
-  see `PROCESS.md` — because it should come from real cycle-time data, not a
-  guess.
-- **Honest about certainty, not just freshness.** A broken machine is a
-  different kind of fact from a stale occupancy report: it doesn't decay
-  with time, and shouldn't be treated as if it might quietly fix itself.
-  Out of order stays out of order until a person says otherwise.
-- **Cheap to contribute to.** If reporting a machine's state takes longer
-  than walking down to look at it yourself, nobody will do it, and the whole
-  premise fails. A report should take a few seconds.
-- **Scoped to what's actually broken, not what's generically missing.** Toad
-  Hall doesn't have a laundry problem because it lacks a booking system or
-  accounts — it has one because there's no shared view at all. This app adds
-  a view, not a reservation queue.
+If checking the app takes longer than walking to the laundry room, nobody
+uses it. So the default view answers one question — which machines are
+available, in use, out of order or unknown, and, where known, how long an
+in-use machine has left — before anything else. When it was last confirmed
+is secondary, but still visible.
 
-## What I read or looked at while deciding this
+## Freshness is part of the information, not an afterthought
 
-*(To fill in before submission — this needs real, specific sources, not this
-placeholder. The final-project brief points at writing on the small web,
-games built for a handful of friends, and tools built for one workshop as a
-starting genre; the citations that actually shaped this app's definition of
-good, and what was taken from each, belong here.)*
+A resident's report is a claim about a moment, not a fact that stays true.
+The OpenStreetMap wiki's
+[`survey:date`](https://wiki.openstreetmap.org/wiki/Key:survey:date)
+convention — tagging when a crowd-maintained fact was last actually checked
+— is a real precedent for
+exactly this: data that looks current but isn't is worse than data that
+visibly admits its own age. Every machine shows "confirmed N min ago" for
+the same reason, and the confirmed → stale → expired model it's building
+toward — thresholds still unresolved; see `PROCESS.md` — exists so an old
+"free" report eventually stops reading as current fact.
 
-## What I chose not to build (for now)
+## Reporting has to take seconds
 
-- **Verified resident accounts.** Reports are anonymous/pseudonymous for now.
-  The eventual plan is invite-based verification with reports still shown
-  under a pseudonym rather than a real name — but that's future work, not
-  this version.
-- **Every shared space in the Hall.** Common rooms, study rooms, reception
-  and courtyards are all real candidates later; this version is laundry
-  only, because it's the sharpest, most concrete version of the same
-  problem, and the layout is fully known.
-- **Real-time updates between open sessions.** The next stage of this
-  project adds it; this version proves persistence first.
-- **Booking, reservations or notifications.** This is a status layer, not a
-  scheduling system — deliberately, because the problem is "what's true
-  right now," not "who gets it next."
+A report should take only a few seconds and require no account setup. Any
+more friction and residents stop reporting, and the shared view stops
+being shared.
+
+## It gets better because other people use it
+
+Toad Live becomes more useful as more residents participate — a single
+person reporting statuses nobody else reads is a diary, not a status
+board. Your reports are only useful because others read them, and theirs
+are only useful because you do too.
+
+## What we chose not to build
+
+Every non-laundry space, verified resident accounts (a session pseudonym
+for now), real-time updates between open sessions, and any booking or
+reservation system — this is a status layer, not a scheduler.
+
+## Enforced vs. judged
+
+`spec/` enforces that a report survives an independent later request, and
+that a malformed timestamp is rejected rather than corrupting a row.
+`CLAUDE.md` records the standing rules the agent must preserve: the fixed
+five-room, four-state model, and that any future decay logic must not
+silently expire out-of-order. Left to a person: whether the freshness
+language reads as honest rather than alarmist, and whether the still-open
+decay thresholds end up matching how long a report actually stays useful.
 
 ---
 
-*This document is published in full at `/readme/`. It's a first version,
-expected to be wrong in places — that's the point of writing it now rather
-than at the end.*
+*Published in full at `/readme/`. First version, expected to change.*
