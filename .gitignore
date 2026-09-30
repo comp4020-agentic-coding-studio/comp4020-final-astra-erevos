@@ -1,6 +1,11 @@
 node_modules/
 dist/
+.astro/
 *.log
+
+# local dev SQLite database — /data is the persisted volume in production,
+# this is only ever a throwaway local copy
+data/
 
 # editor and OS junk
 .DS_Store

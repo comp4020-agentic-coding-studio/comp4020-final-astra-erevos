@@ -1,0 +1,40 @@
+---
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { marked } from "marked";
+
+// README.md is the argued definition of good (see the final-project brief);
+// this page is required to publish it in full at /readme/. Read from cwd,
+// not import.meta.url, so this resolves the same way in dev and once built.
+const readmeMarkdown = readFileSync(join(process.cwd(), "README.md"), "utf8");
+const readmeHtml = marked.parse(readmeMarkdown) as string;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toad Live — README</title>
+    <style>
+      body {
+        font: 16px/1.5 system-ui, sans-serif;
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #1a1a1a;
+      }
+      a {
+        color: #245c3a;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 0.1em 0.3em;
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <p><a href="/">← back to the laundry board</a></p>
+    <article set:html={readmeHtml} />
+  </body>
+</html>

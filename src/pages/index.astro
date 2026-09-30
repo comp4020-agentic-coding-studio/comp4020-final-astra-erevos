@@ -1,0 +1,143 @@
+---
+import { LOCATIONS, listMachines, type Machine } from "../lib/db.ts";
+
+const machines = listMachines();
+const byLocation = new Map(LOCATIONS.map((loc) => [loc, machines.filter((m) => m.location === loc)]));
+
+function confirmedLabel(confirmedAt: number | null): string {
+  if (confirmedAt === null) return "never reported";
+  const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+  if (minutes < 1) return "confirmed just now";
+  return `confirmed ${minutes} min ago`;
+}
+
+function statusLabel(machine: Machine): string {
+  if (machine.status !== "in-use") return machine.status;
+  if (machine.expectedEndAt === null) return "in use — remaining time unknown";
+  const minutes = Math.round((machine.expectedEndAt - Date.now()) / 60_000);
+  return minutes > 0 ? `in use — about ${minutes} min remaining` : "in use — should be finishing";
+}
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toad Live — laundry</title>
+    <style>
+      body {
+        font: 16px/1.5 system-ui, sans-serif;
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #1a1a1a;
+      }
+      section {
+        margin-bottom: 1.5rem;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+      }
+      li {
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+      }
+      .status {
+        font-weight: 600;
+      }
+      .confirmed {
+        color: #666;
+        font-size: 0.9em;
+        display: block;
+      }
+      form {
+        margin-top: 0.5rem;
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Toad Live</h1>
+    <p>
+      Laundry across Toad Hall's five blocks — reported by residents, not
+      sensors. See <a href="/readme/">what "good" means here</a>.
+    </p>
+
+    {LOCATIONS.map((location) => (
+      <section>
+        <h2>Block {location}</h2>
+        <ul>
+          {byLocation.get(location)!.map((machine) => (
+            <li data-machine={machine.id}>
+              <span class="status">{machine.type}: {statusLabel(machine)}</span>
+              <span class="confirmed">{confirmedLabel(machine.confirmedAt)}</span>
+              <form class="report-form" data-id={machine.id}>
+                <select name="status">
+                  <option value="available">available</option>
+                  <option value="in-use">in-use</option>
+                  <option value="out-of-order">out-of-order</option>
+                </select>
+                <input
+                  type="number"
+                  name="minutes"
+                  min="0"
+                  placeholder="minutes remaining (optional)"
+                />
+                <button type="submit">report</button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))}
+
+    <script>
+      // A lightweight, anonymous session id — enough to attribute a report
+      // to *something* without a login flow. See PROCESS.md: this is
+      // deliberately shaped to grow into verified resident accounts later,
+      // not a finished identity system now.
+      function sessionId(): string | null {
+        try {
+          let id = localStorage.getItem("toadlive-session");
+          if (!id) {
+            id = crypto.randomUUID();
+            localStorage.setItem("toadlive-session", id);
+          }
+          return id;
+        } catch {
+          return null;
+        }
+      }
+
+      document.querySelectorAll<HTMLFormElement>(".report-form").forEach((form) => {
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const id = form.dataset.id;
+          const status = (form.elements.namedItem("status") as HTMLSelectElement).value;
+          const minutesRaw = (form.elements.namedItem("minutes") as HTMLInputElement).value;
+          const minutes = minutesRaw === "" ? null : Number(minutesRaw);
+
+          const res = await fetch(`/api/machines/${id}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              status,
+              reporterId: sessionId(),
+              expectedEndAt:
+                status === "in-use" && minutes !== null ? Date.now() + minutes * 60_000 : undefined,
+            }),
+          });
+
+          if (res.ok) location.reload();
+          else alert("couldn't save that report — try again");
+        });
+      });
+    </script>
+  </body>
+</html>

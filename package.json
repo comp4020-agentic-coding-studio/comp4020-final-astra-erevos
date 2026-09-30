@@ -4,6 +4,9 @@
   "type": "module",
   "scripts": {
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
+    "dev": "astro dev --port 8080",
+    "build": "astro build",
+    "start": "node ./dist/server/entry.mjs",
     "typecheck": "tsc --noEmit",
     "check": "pnpm typecheck && pnpm test",
     "check:evidence": "node scripts/check-evidence.ts",
@@ -18,5 +21,10 @@
   },
   "engines": {
     "pnpm": ">=11"
+  },
+  "dependencies": {
+    "@astrojs/node": "^11.1.6",
+    "astro": "^7.3.5",
+    "marked": "^18.0.14"
   }
 }

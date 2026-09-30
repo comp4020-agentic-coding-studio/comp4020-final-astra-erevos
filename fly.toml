@@ -25,6 +25,7 @@ dockerfile = "Dockerfile"
 
 [env]
 PORT = "8080"
+DB_PATH = "/data/toadlive.db"
 
 [http_service]
 internal_port = 8080
