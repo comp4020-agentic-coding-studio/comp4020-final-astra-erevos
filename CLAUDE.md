@@ -54,6 +54,13 @@ let this file, the README's argument, and the code drift apart.
   load-bearing may exist only in server memory — it has to survive a
   restart or redeploy, since that's the one thing Crit 8 is actually
   checked on.
+- **Validate `startedAt`/`expectedEndAt` as safe, positive integers before
+  writing them.** A real incident during the crit 8 redeploy check: an
+  unvalidated, oversized client timestamp got written to SQLite and
+  `node:sqlite` cannot read that value back — the row 500'd on every
+  future GET/PATCH, not just that one bad request. Any new field that
+  stores a client-provided number needs the same guard before it reaches
+  the database, not a try/catch after the fact.
 
 ## Keeping README.md, this file, and spec/ in agreement
 

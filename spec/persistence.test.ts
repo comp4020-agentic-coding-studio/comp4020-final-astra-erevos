@@ -22,3 +22,22 @@ it("a machine status update persists across an independent later request", async
   expect(body.status).toBe("in-use");
   expect(typeof body.expectedEndAt).toBe("number");
 });
+
+// A real incident during the crit 8 redeploy check: an unvalidated timestamp
+// too large for node:sqlite to read back corrupted a row into one that
+// errored on every future GET/PATCH — a status update surviving is no good
+// if a bad one can permanently break the row it lands on.
+it("rejects a timestamp too large to store safely, rather than corrupting the row", async () => {
+  const machineId = "g-washer";
+
+  const patch = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status: "in-use", startedAt: 1_790_783_554_649_972_224 }),
+  });
+  expect(patch.status).toBe(400);
+
+  // The row must still be readable afterwards — rejection, not corruption.
+  const after = await fetch(new URL(`/api/machines/${machineId}`, baseUrl));
+  expect(after.status).toBe(200);
+});
