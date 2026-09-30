@@ -1,8 +1,30 @@
 ---
-import { LOCATIONS, listMachines, type Machine } from "../lib/db.ts";
+import { LOCATIONS, listMachines, type Machine, type MachineStatus, type MachineType } from "../lib/db.ts";
 
 const machines = listMachines();
-const byLocation = new Map(LOCATIONS.map((loc) => [loc, machines.filter((m) => m.location === loc)]));
+const byLocation = new Map(
+  LOCATIONS.map((loc) => [loc, machines.filter((m) => m.location === loc)]),
+);
+
+// Status semantics, not just decoration: available/out-of-order carry real
+// severity (good/critical, from the fixed status palette). in-use is a
+// neutral "occupied" identity, not a warning — nothing's wrong, so it gets
+// the categorical blue rather than amber. unknown is an absence of
+// information, so it gets no saturated colour at all. Every state also
+// carries an icon + text label; colour is never the only signal.
+const STATUS_META: Record<MachineStatus, { label: string; icon: string; class: string }> = {
+  available: { label: "Available", icon: "✓", class: "status-available" },
+  "in-use": { label: "In use", icon: "●", class: "status-in-use" },
+  "out-of-order": { label: "Out of order", icon: "✕", class: "status-out-of-order" },
+  unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+};
+
+const summary = [
+  { key: "available" as const, count: machines.filter((m) => m.status === "available").length },
+  { key: "in-use" as const, count: machines.filter((m) => m.status === "in-use").length },
+  { key: "out-of-order" as const, count: machines.filter((m) => m.status === "out-of-order").length },
+  { key: "unknown" as const, count: machines.filter((m) => m.status === "unknown").length },
+];
 
 function confirmedLabel(confirmedAt: number | null): string {
   if (confirmedAt === null) return "never reported";
@@ -11,11 +33,12 @@ function confirmedLabel(confirmedAt: number | null): string {
   return `confirmed ${minutes} min ago`;
 }
 
-function statusLabel(machine: Machine): string {
-  if (machine.status !== "in-use") return machine.status;
-  if (machine.expectedEndAt === null) return "in use — remaining time unknown";
+function remainingLabel(machine: Machine): { text: string; known: boolean } {
+  if (machine.expectedEndAt === null) return { text: "remaining time unknown", known: false };
   const minutes = Math.round((machine.expectedEndAt - Date.now()) / 60_000);
-  return minutes > 0 ? `in use — about ${minutes} min remaining` : "in use — should be finishing";
+  return minutes > 0
+    ? { text: `${minutes} min left`, known: true }
+    : { text: "should be finishing", known: true };
 }
 ---
 
@@ -25,77 +48,436 @@ function statusLabel(machine: Machine): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Toad Live — laundry</title>
     <style>
+      :root {
+        color-scheme: light;
+        --page: #f6efe1;
+        --surface: #fffbf1;
+        --surface-alt: #fdf6e6;
+        --ink: #2c2115;
+        --ink-secondary: #6b5c47;
+        --ink-muted: #9c8d76;
+        --border: rgba(44, 33, 21, 0.14);
+        --accent: #3f6b3f;
+        --accent-strong: #2f5233;
+        --warm: #c1652f;
+        --status-good: #0ca30c;
+        --status-in-use: #2a78d6;
+        --status-critical: #d03b3b;
+        /* fixed, never themed — an industrial hazard-tape pairing, same
+           idea as the status colours: deliberately not adapted to light/dark */
+        --hazard-dark: #1a1410;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --page: #1c150f;
+          --surface: #2a2015;
+          --surface-alt: #241b12;
+          --ink: #f6ecd9;
+          --ink-secondary: #d3c2a3;
+          --ink-muted: #9c8d76;
+          --border: rgba(246, 236, 217, 0.16);
+          --accent: #86b986;
+          --accent-strong: #a6d1a6;
+          --warm: #e08a4f;
+          --status-in-use: #3987e5;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
       body {
-        font: 16px/1.5 system-ui, sans-serif;
-        max-width: 40rem;
-        margin: 2rem auto;
-        padding: 0 1rem;
-        color: #1a1a1a;
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
       }
-      section {
-        margin-bottom: 1.5rem;
+
+      main {
+        max-width: 78rem;
+        margin: 0 auto;
+        padding: 1.5rem 1.25rem 4rem;
       }
-      ul {
-        list-style: none;
-        padding: 0;
+
+      header.hero {
+        text-align: center;
+        padding: 1.5rem 1rem 1rem;
       }
-      li {
-        border: 1px solid #ddd;
-        border-radius: 6px;
-        padding: 0.75rem;
-        margin-bottom: 0.5rem;
+      header.hero h1 {
+        margin: 0;
+        font-size: clamp(1.8rem, 4vw, 2.4rem);
+        color: var(--accent-strong);
+        letter-spacing: -0.01em;
       }
-      .status {
+      header.hero p {
+        margin: 0.5rem auto 0;
+        max-width: 32rem;
+        color: var(--ink-secondary);
+      }
+      header.hero a {
+        color: var(--accent);
+        text-decoration: underline;
+        text-decoration-color: var(--border);
+      }
+
+      /* --- summary stat row: stays a compact, centred band even though
+         the page below it now uses the full desktop width --- */
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.6rem;
+        max-width: 44rem;
+        margin: 1.5rem auto 2.5rem;
+      }
+      @media (max-width: 30rem) {
+        .summary { grid-template-columns: repeat(2, 1fr); }
+      }
+      .stat {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 0.75rem 0.6rem;
+        text-align: center;
+      }
+      .stat .value {
+        display: block;
+        font-size: 1.6rem;
+        font-weight: 700;
+        line-height: 1;
+      }
+      .stat .label {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35em;
+        margin-top: 0.3rem;
+        font-size: 0.8rem;
+        color: var(--ink-secondary);
+      }
+      .stat .dot {
+        width: 0.55em;
+        height: 0.55em;
+        border-radius: 50%;
+        flex: none;
+      }
+      .stat.available .dot, .stat.available .value { color: var(--status-good); }
+      .stat.available .dot { background: var(--status-good); }
+      .stat.in-use .dot { background: var(--status-in-use); }
+      .stat.out-of-order .dot, .stat.out-of-order .value { color: var(--status-critical); }
+      .stat.out-of-order .dot { background: var(--status-critical); }
+      .stat.unknown .dot { background: var(--ink-muted); }
+
+      /* --- zones: a Block is a location label, not another card. Flex +
+         justify-content:center rather than grid so a trailing row of two
+         (a 3+2 layout across five blocks) sits centred as a balanced group
+         instead of stretching or reading as a "missing" third card. --- */
+      .halls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 2rem 1.5rem;
+      }
+      .hall {
+        flex: 1 1 21rem;
+        max-width: 24rem;
+      }
+      @media (max-width: 26rem) {
+        .hall { flex-basis: 100%; max-width: none; }
+      }
+      .zone-label {
+        display: flex;
+        align-items: center;
+        gap: 0.4em;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent-strong);
+        padding-bottom: 0.5rem;
+        margin-bottom: 0.75rem;
+        border-bottom: 2px solid var(--border);
+      }
+      .zone-label svg { flex: none; }
+      .machines {
+        display: flex;
+        flex-direction: column;
+        gap: 0.7rem;
+      }
+
+      /* --- the machine card: the one actual "card" in the hierarchy --- */
+      .machine {
+        position: relative;
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 0.8rem 0.9rem;
+        box-shadow: 0 1px 2px rgba(44, 33, 21, 0.05);
+      }
+      .machine-head {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+      }
+      .machine-icon-chip {
+        flex: none;
+        width: 2.2rem;
+        height: 2.2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        background: var(--surface-alt);
+        color: var(--accent-strong);
+      }
+      .machine-type {
         font-weight: 600;
+        text-transform: capitalize;
+        margin-right: auto;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35em;
+        border-radius: 999px;
+        padding: 0.2em 0.7em;
+        font-size: 0.8rem;
+        font-weight: 600;
+        border: 1px solid transparent;
+      }
+      .status-available.badge {
+        background: color-mix(in srgb, var(--status-good) 16%, var(--surface));
+        color: var(--status-good);
+        border-color: color-mix(in srgb, var(--status-good) 35%, transparent);
+      }
+      .status-in-use.badge {
+        background: color-mix(in srgb, var(--status-in-use) 16%, var(--surface));
+        color: var(--status-in-use);
+        border-color: color-mix(in srgb, var(--status-in-use) 35%, transparent);
+      }
+      .status-unknown.badge {
+        background: transparent;
+        color: var(--ink-muted);
+        border-color: var(--border);
+        border-style: dashed;
+      }
+      /* out-of-order reads as a stamped notice, not a soft pill — same
+         badge family (icon + label + shape) but solid, blocky, uppercase */
+      .status-out-of-order.badge {
+        background: var(--status-critical);
+        color: var(--surface);
+        border-color: transparent;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 800;
+      }
+
+      /* the broken-machine card also gets a hazard-tape top edge, evoking
+         the physical "OUT OF ORDER" notices staff actually tape to these
+         machines — fixed colours, deliberately not themed, same as the
+         status palette itself */
+      .machine--broken {
+        border-color: color-mix(in srgb, var(--status-critical) 45%, var(--border));
+      }
+      .machine--broken::before {
+        content: "";
+        position: absolute;
+        top: -1px;
+        left: -1px;
+        right: -1px;
+        height: 8px;
+        border-radius: 13px 13px 0 0;
+        background: repeating-linear-gradient(
+          45deg,
+          var(--status-critical) 0 10px,
+          var(--hazard-dark) 10px 20px
+        );
+      }
+      .machine--broken .machine-head { margin-top: 0.15rem; }
+
+      .remaining {
+        margin: 0.5rem 0 0;
+        font-size: 1.15rem;
+        font-weight: 700;
+      }
+      .remaining.unknown-time {
+        font-size: 0.95rem;
+        font-weight: 500;
+        font-style: italic;
+        color: var(--ink-muted);
       }
       .confirmed {
-        color: #666;
-        font-size: 0.9em;
         display: block;
+        margin-top: 0.3rem;
+        font-size: 0.8rem;
+        color: var(--ink-muted);
       }
-      form {
+
+      /* --- reporting: a small chip, clearly tappable, still secondary --- */
+      details.report {
+        margin-top: 0.65rem;
+      }
+      details.report summary {
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35em;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--accent-strong);
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.35rem 0.8rem;
+        list-style: none;
+        min-height: 1.6rem;
+      }
+      details.report summary::-webkit-details-marker { display: none; }
+      details.report summary::before { content: "✎"; font-size: 0.85em; }
+      details.report summary::after {
+        content: "⌄";
+        margin-left: 0.15em;
+        transition: transform 0.15s ease;
+      }
+      details.report[open] summary::after { transform: rotate(180deg); }
+      details.report summary:hover {
+        background: color-mix(in srgb, var(--accent) 14%, var(--surface-alt));
+      }
+      details.report summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      form.report-form {
         margin-top: 0.5rem;
         display: flex;
         gap: 0.5rem;
         flex-wrap: wrap;
-        align-items: center;
+      }
+      form.report-form select,
+      form.report-form input,
+      form.report-form button {
+        font: inherit;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.5rem 0.6rem;
+        background: var(--surface);
+        color: var(--ink);
+      }
+      form.report-form input {
+        width: 9rem;
+      }
+      form.report-form button {
+        background: var(--accent);
+        color: var(--surface);
+        border-color: var(--accent);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      form.report-form button:hover { background: var(--accent-strong); }
+      form.report-form select:focus-visible,
+      form.report-form input:focus-visible,
+      form.report-form button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
       }
     </style>
   </head>
   <body>
-    <h1>Toad Live</h1>
-    <p>
-      Laundry across Toad Hall's five blocks — reported by residents, not
-      sensors. See <a href="/readme/">what "good" means here</a>.
-    </p>
+    <main>
+      <header class="hero">
+        <h1>Toad Live</h1>
+        <p>
+          Laundry across Toad Hall's five blocks — reported by residents, not
+          sensors. See <a href="/readme/">what "good" means here</a>.
+        </p>
+      </header>
 
-    {LOCATIONS.map((location) => (
-      <section>
-        <h2>Block {location}</h2>
-        <ul>
-          {byLocation.get(location)!.map((machine) => (
-            <li data-machine={machine.id}>
-              <span class="status">{machine.type}: {statusLabel(machine)}</span>
-              <span class="confirmed">{confirmedLabel(machine.confirmedAt)}</span>
-              <form class="report-form" data-id={machine.id}>
-                <select name="status">
-                  <option value="available">available</option>
-                  <option value="in-use">in-use</option>
-                  <option value="out-of-order">out-of-order</option>
-                </select>
-                <input
-                  type="number"
-                  name="minutes"
-                  min="0"
-                  placeholder="minutes remaining (optional)"
-                />
-                <button type="submit">report</button>
-              </form>
-            </li>
-          ))}
-        </ul>
+      <section class="summary" aria-label="Laundry summary">
+        {summary.map(({ key, count }) => (
+          <div class:list={["stat", key]}>
+            <span class="value">{count}</span>
+            <span class="label"><span class="dot"></span>{STATUS_META[key].label.toLowerCase()}</span>
+          </div>
+        ))}
       </section>
-    ))}
+
+      <section class="halls">
+        {LOCATIONS.map((location) => (
+          <article class="hall">
+            <h2 class="zone-label">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 21s-6.5-5.8-6.5-11A6.5 6.5 0 0 1 18.5 10c0 5.2-6.5 11-6.5 11z" />
+                <circle cx="12" cy="10" r="2.2" />
+              </svg>
+              Block {location}
+            </h2>
+            <div class="machines">
+              {byLocation.get(location)!.map((machine) => {
+                const meta = STATUS_META[machine.status];
+                const remaining = machine.status === "in-use" ? remainingLabel(machine) : null;
+                const broken = machine.status === "out-of-order";
+                return (
+                  <div class:list={["machine", broken && "machine--broken"]} data-machine={machine.id}>
+                    <div class="machine-head">
+                      <span class="machine-icon-chip" aria-hidden="true">
+                        {machine.type === "washer" ? (
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="2.5" width="18" height="19" rx="3" />
+                            <circle cx="12" cy="13" r="6" />
+                            <path d="M9 13c.8-1 1.5-1 2 0s1.2 1 2 0" />
+                            <circle cx="6.5" cy="5.5" r="0.6" fill="currentColor" stroke="none" />
+                            <circle cx="9" cy="5.5" r="0.6" fill="currentColor" stroke="none" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="2.5" width="18" height="19" rx="3" />
+                            <circle cx="12" cy="13" r="6" />
+                            <path d="M9.5 15.3a3.2 3.2 0 0 1 4.6-4" />
+                            <path d="M14.5 10.7a3.2 3.2 0 0 1-4.6 4" />
+                            <line x1="6.5" y1="5.5" x2="9" y2="5.5" />
+                          </svg>
+                        )}
+                      </span>
+                      <span class="machine-type">{machine.type}</span>
+                      <span class:list={["badge", meta.class]}>
+                        <span aria-hidden="true">{meta.icon}</span>{meta.label}
+                      </span>
+                    </div>
+
+                    {remaining && (
+                      <p class:list={["remaining", !remaining.known && "unknown-time"]}>
+                        {remaining.text}
+                      </p>
+                    )}
+                    <span class="confirmed">{confirmedLabel(machine.confirmedAt)}</span>
+
+                    <details class="report">
+                      <summary>Update status</summary>
+                      <form class="report-form" data-id={machine.id}>
+                        <select name="status" aria-label={`New status for ${location} ${machine.type}`}>
+                          <option value="available">Available</option>
+                          <option value="in-use">In use</option>
+                          <option value="out-of-order">Out of order</option>
+                        </select>
+                        <input
+                          type="number"
+                          name="minutes"
+                          min="0"
+                          placeholder="minutes left (optional)"
+                          aria-label="Minutes remaining, optional"
+                        />
+                        <button type="submit">Report</button>
+                      </form>
+                    </details>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        ))}
+      </section>
+    </main>
 
     <script>
       // A lightweight, anonymous session id — enough to attribute a report

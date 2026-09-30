@@ -16,21 +16,45 @@ const readmeHtml = marked.parse(readmeMarkdown) as string;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Toad Live — README</title>
     <style>
+      :root {
+        color-scheme: light;
+        --page: #f6efe1;
+        --ink: #2c2115;
+        --ink-secondary: #6b5c47;
+        --border: rgba(44, 33, 21, 0.14);
+        --accent: #3f6b3f;
+        --accent-strong: #2f5233;
+        --surface-alt: #fdf6e6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --page: #1c150f;
+          --ink: #f6ecd9;
+          --ink-secondary: #d3c2a3;
+          --border: rgba(246, 236, 217, 0.16);
+          --accent: #86b986;
+          --accent-strong: #a6d1a6;
+          --surface-alt: #241b12;
+        }
+      }
       body {
-        font: 16px/1.5 system-ui, sans-serif;
+        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
         max-width: 40rem;
-        margin: 2rem auto;
-        padding: 0 1rem;
-        color: #1a1a1a;
+        margin: 0 auto;
+        padding: 2rem 1rem 4rem;
+        background: var(--page);
+        color: var(--ink);
       }
-      a {
-        color: #245c3a;
-      }
+      h1, h2, h3 { color: var(--accent-strong); }
+      a { color: var(--accent); }
       code {
-        background: #f0f0f0;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
         padding: 0.1em 0.3em;
-        border-radius: 3px;
+        border-radius: 4px;
       }
+      hr { border: none; border-top: 1px solid var(--border); }
     </style>
   </head>
   <body>
