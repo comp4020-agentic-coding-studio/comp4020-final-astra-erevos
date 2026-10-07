@@ -111,11 +111,43 @@ With that fix deployed, the redeploy check ran clean: a known report to
 machine's version number moved), which is the actual proof the `/data`
 volume does what `fly.toml` claims it does.
 
+## Closing the in-use leak: a resident-reported bug after crit 8
+
+A resident pointed out, after crit 8's deadline, that an in-use machine
+never stopped being in-use: once its `expected_end_at` passed, the card
+just kept reading "should be finishing" indefinitely, and a dryer whose
+owner never estimated an end time (`expected_end_at` null) had no path off
+"in-use" at all. That's a real gap in the confirmed → stale → expired model
+the README already describes as the goal, not a new feature.
+
+The fix is a lazy decay, computed on an ordinary read (page load /
+`GET`, never pushed — real-time sync is still out of scope until that work
+explicitly begins), and it only ever touches `in-use`:
+
+- with `expected_end_at` set, the machine decays to `unknown` the moment
+  that time passes. No threshold is invented here — the report's own end
+  time is the signal, so this is exact, not guessed.
+- with `expected_end_at` null (the untimed-dryer case the resident raised),
+  it falls back to a fixed window since `started_at`, currently 12 hours.
+
+That 12-hour number is explicitly **provisional**, not a settled minute
+value — CLAUDE.md is clear that the actual decay thresholds are an open
+question pending real cycle-time data, and this one is a placeholder
+picked to be clearly longer than any real wash/dry cycle, not a measured
+one. It's marked as such in `src/lib/db.ts` (`UNTIMED_IN_USE_DECAY_MS`) and
+needs revisiting once real data exists, alongside the still-wide-open
+available/unknown lifetimes tracked in
+`notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. `available` and
+`out-of-order` are untouched by this change — out-of-order stays sticky,
+exactly as CLAUDE.md requires, and the resident's own report confirmed
+`available` shouldn't auto-refresh either. Covered by
+`spec/decay.test.ts`.
+
 ## What's still ahead
 
-Real-time sync (crit 9), decay/staleness thresholds (pending real
-cycle-time data, not guessed), verified resident identity, and every
-non-laundry space stay deliberately out of scope — see
-`notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` for the fuller list. README's own
-citations for its definition of good are the next piece of process still
-missing.
+Real-time sync (crit 9), the remaining decay/staleness thresholds beyond
+the provisional in-use window above (pending real cycle-time data, not
+guessed), verified resident identity, and every non-laundry space stay
+deliberately out of scope — see `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md`
+for the fuller list. README's own citations for its definition of good are
+the next piece of process still missing.
