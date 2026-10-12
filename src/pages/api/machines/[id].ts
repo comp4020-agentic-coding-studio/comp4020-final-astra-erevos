@@ -14,6 +14,7 @@ interface ReportBody {
   startedAt?: number;
   expectedEndAt?: number;
   reporterId?: string;
+  ifVersion?: number;
 }
 
 function isValidStatus(status: string | undefined): status is MachineStatus {
@@ -21,36 +22,52 @@ function isValidStatus(status: string | undefined): status is MachineStatus {
 }
 
 // node:sqlite throws rather than silently truncate when a stored INTEGER
-// exceeds Number.MAX_SAFE_INTEGER, so an unvalidated client timestamp can
+// exceeds Number.MAX_SAFE_INTEGER, so an unvalidated client number can
 // corrupt a row into one that errors on every future read — not a
 // hypothetical: this is exactly how ab-washer broke during the crit 8
 // redeploy check. Reject anything that isn't a real, safe, positive
-// timestamp before it ever reaches SQLite.
-function isSafeTimestamp(value: unknown): value is number {
+// integer before it ever reaches SQLite — used for startedAt/expectedEndAt
+// (timestamps) and, since Crit 9, ifVersion: a different field, the same
+// guard, not a new category of rule.
+function isSafePositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 // A resident's report: sets the new status and, for in-use, an optional
 // expected end time (read off a washer's own display, or a dryer user's
 // estimate — either way it's this same optional field, never assumed).
+//
+// ifVersion is required: the version this client's own view last saw. The
+// write only applies if that's still the machine's current version — see
+// notes/adr/0001-realtime-and-concurrent-updates.md. A stale view gets 409
+// with the current canonical state, never a silent overwrite.
 export const PATCH: APIRoute = async ({ params, request }) => {
   const body: ReportBody | null = await request.json().catch(() => null);
   if (!body || !isValidStatus(body.status)) {
     return json({ error: `status must be one of: ${VALID_STATUSES.join(", ")}` }, 400);
   }
-  if (body.startedAt !== undefined && !isSafeTimestamp(body.startedAt)) {
+  if (body.startedAt !== undefined && !isSafePositiveInteger(body.startedAt)) {
     return json({ error: "startedAt must be a valid timestamp" }, 400);
   }
-  if (body.expectedEndAt !== undefined && !isSafeTimestamp(body.expectedEndAt)) {
+  if (body.expectedEndAt !== undefined && !isSafePositiveInteger(body.expectedEndAt)) {
     return json({ error: "expectedEndAt must be a valid timestamp" }, 400);
   }
+  if (!isSafePositiveInteger(body.ifVersion)) {
+    return json({ error: "ifVersion must be the safe positive integer version you last saw" }, 400);
+  }
 
-  const updated = reportStatus(params.id!, {
-    status: body.status,
-    startedAt: body.startedAt,
-    expectedEndAt: body.expectedEndAt,
-    reporterId: body.reporterId,
-  });
+  const result = reportStatus(
+    params.id!,
+    {
+      status: body.status,
+      startedAt: body.startedAt,
+      expectedEndAt: body.expectedEndAt,
+      reporterId: body.reporterId,
+    },
+    body.ifVersion,
+  );
 
-  return updated ? json(updated, 200) : json({ error: "no such machine" }, 404);
+  if (result.ok) return json(result.machine, 200);
+  if (result.reason === "not-found") return json({ error: "no such machine" }, 404);
+  return json({ error: "stale version", current: result.current }, 409);
 };

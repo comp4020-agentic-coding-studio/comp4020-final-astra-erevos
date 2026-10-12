@@ -454,7 +454,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
 
                     <details class="report">
                       <summary>Update status</summary>
-                      <form class="report-form" data-id={machine.id}>
+                      <form class="report-form" data-id={machine.id} data-version={machine.version}>
                         <select name="status" aria-label={`New status for ${location} ${machine.type}`}>
                           <option value="available">Available</option>
                           <option value="in-use">In use</option>
@@ -501,6 +501,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         form.addEventListener("submit", async (event) => {
           event.preventDefault();
           const id = form.dataset.id;
+          const ifVersion = Number(form.dataset.version);
           const status = (form.elements.namedItem("status") as HTMLSelectElement).value;
           const minutesRaw = (form.elements.namedItem("minutes") as HTMLInputElement).value;
           const minutes = minutesRaw === "" ? null : Number(minutesRaw);
@@ -510,14 +511,24 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               status,
+              ifVersion,
               reporterId: sessionId(),
               expectedEndAt:
                 status === "in-use" && minutes !== null ? Date.now() + minutes * 60_000 : undefined,
             }),
           });
 
+          // A conflict means someone else's report (or a lazy decay) landed
+          // since this page loaded its version — reload to show the actual
+          // current state rather than retrying blindly over it. Pushing
+          // that update live instead of needing a reload is Crit 9's
+          // further-along answer; see
+          // notes/adr/0001-realtime-and-concurrent-updates.md.
           if (res.ok) location.reload();
-          else alert("couldn't save that report — try again");
+          else if (res.status === 409) {
+            alert("someone else just updated this machine — showing the latest");
+            location.reload();
+          } else alert("couldn't save that report — try again");
         });
       });
     </script>

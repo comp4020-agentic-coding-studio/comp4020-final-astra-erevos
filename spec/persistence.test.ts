@@ -9,10 +9,18 @@ const baseUrl = inject("baseUrl");
 it("a machine status update persists across an independent later request", async () => {
   const machineId = "ab-washer";
 
+  const before = await fetch(new URL(`/api/machines/${machineId}`, baseUrl));
+  const { version } = await before.json();
+
   const patch = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ status: "in-use", startedAt: Date.now(), expectedEndAt: Date.now() + 40 * 60_000 }),
+    body: JSON.stringify({
+      status: "in-use",
+      startedAt: Date.now(),
+      expectedEndAt: Date.now() + 40 * 60_000,
+      ifVersion: version,
+    }),
   });
   expect(patch.status).toBe(200);
 
@@ -28,12 +36,19 @@ it("a machine status update persists across an independent later request", async
 // errored on every future GET/PATCH — a status update surviving is no good
 // if a bad one can permanently break the row it lands on.
 it("rejects a timestamp too large to store safely, rather than corrupting the row", async () => {
-  const machineId = "g-washer";
+  // Its own machine, not shared with any other spec file: Vitest runs test
+  // files in parallel, and version-matched writes mean two files racing on
+  // the same machine id could make an otherwise-correct PATCH 409 as a
+  // false failure rather than a real bug.
+  const machineId = "ab-dryer";
+
+  const before = await fetch(new URL(`/api/machines/${machineId}`, baseUrl));
+  const { version } = await before.json();
 
   const patch = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ status: "in-use", startedAt: 1_790_783_554_649_972_224 }),
+    body: JSON.stringify({ status: "in-use", startedAt: 1_790_783_554_649_972_224, ifVersion: version }),
   });
   expect(patch.status).toBe(400);
 
