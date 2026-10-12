@@ -9,6 +9,7 @@ import {
   type MachineStatus,
   type MachineType,
 } from "./types.ts";
+import { broadcast } from "./realtime.ts";
 
 // Re-exported for every existing call site (index.astro, the API route) —
 // the types/constants themselves live in types.ts now so a future realtime
@@ -98,13 +99,16 @@ const UNTIMED_IN_USE_DECAY_MS = 12 * 60 * 60 * 1000; // 12 hours
 // decay; nothing here changes that (see CLAUDE.md, real-time scope).
 //
 // A decay transition is a real, canonical mutation, not just a read-time
-// display fix, so it increments `version` exactly like a resident's report
-// does — a stale client PATCH that doesn't know decay already fired must
-// not be able to silently resurrect the state decay just invalidated. The
-// WHERE guard mirrors the resident-report path: it's not needed for
-// correctness under node:sqlite's synchronous, single-process access, but
-// it keeps "a canonical mutation only applies against the row it actually
-// read" true everywhere, not just where a real race is possible.
+// display fix, so it increments `version` and broadcasts exactly like a
+// resident's report does — a stale client PATCH that doesn't know decay
+// already fired must not be able to silently resurrect the state decay
+// just invalidated, and every other open session needs to see it too,
+// not just whoever happened to trigger the read. See
+// notes/adr/0001-realtime-and-concurrent-updates.md. The WHERE guard
+// mirrors the resident-report path: it's not needed for correctness under
+// node:sqlite's synchronous, single-process access, but it keeps "a
+// canonical mutation only applies against the row it actually read" true
+// everywhere, not just where a real race is possible.
 function decayed(row: MachineRow): MachineRow {
   if (row.status !== "in-use") return row;
 
@@ -126,12 +130,21 @@ function decayed(row: MachineRow): MachineRow {
   // changes === 0 means something else already moved this row since it was
   // read (out of reach in a single synchronous process today, but the
   // row's current truth is one query away either way) — re-read rather
-  // than assume our own stale view of it.
+  // than assume our own stale view of it, and don't broadcast: nothing
+  // actually changed as a result of this call.
   if (changes === 0) {
     return db.prepare("SELECT * FROM machines WHERE id = ?").get(row.id) as unknown as MachineRow;
   }
 
-  return { ...row, status: "unknown", started_at: null, expected_end_at: null, version: row.version + 1 };
+  const updated: MachineRow = {
+    ...row,
+    status: "unknown",
+    started_at: null,
+    expected_end_at: null,
+    version: row.version + 1,
+  };
+  broadcast(toMachine(updated));
+  return updated;
 }
 
 function toMachine(row: MachineRow): Machine {
@@ -202,9 +215,17 @@ export function reportStatus(id: string, report: StatusReport, ifVersion: number
     .run(report.status, startedAt, expectedEndAt, Date.now(), report.reporterId ?? null, id, ifVersion);
 
   if (changes === 1) {
-    // Re-read rather than hand-build the result: this also applies decay
-    // if the write itself (e.g. an already-past expectedEndAt) immediately
-    // qualifies, so the response never claims a state the row doesn't hold.
+    // Broadcast exactly what this write just set, straight off the row —
+    // not through getMachine()/decayed(), which would fold in any
+    // immediate decay before this report's own state ever got announced.
+    const written = db.prepare("SELECT * FROM machines WHERE id = ?").get(id) as unknown as MachineRow;
+    broadcast(toMachine(written));
+
+    // Re-read through getMachine() for the HTTP response, which also
+    // applies decay if the write itself (e.g. an already-past
+    // expectedEndAt) immediately qualifies — decayed() broadcasts that
+    // separately if it fires, so the response and every open session
+    // agree on the final state either way.
     return { ok: true, machine: getMachine(id)! };
   }
 

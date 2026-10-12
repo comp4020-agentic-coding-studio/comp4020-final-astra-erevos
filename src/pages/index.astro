@@ -383,7 +383,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       }
     </style>
   </head>
-  <body>
+  <body data-status-meta={JSON.stringify(STATUS_META)}>
     <main>
       <header class="hero">
         <h1>Toad Live</h1>
@@ -418,7 +418,11 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
                 const remaining = machine.status === "in-use" ? remainingLabel(machine) : null;
                 const broken = machine.status === "out-of-order";
                 return (
-                  <div class:list={["machine", broken && "machine--broken"]} data-machine={machine.id}>
+                  <div
+                    class:list={["machine", broken && "machine--broken"]}
+                    data-machine={machine.id}
+                    data-status={machine.status}
+                  >
                     <div class="machine-head">
                       <span class="machine-icon-chip" aria-hidden="true">
                         {machine.type === "washer" ? (
@@ -445,11 +449,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
                       </span>
                     </div>
 
-                    {remaining && (
-                      <p class:list={["remaining", !remaining.known && "unknown-time"]}>
-                        {remaining.text}
-                      </p>
-                    )}
+                    {/* Always rendered, hidden when not in-use, so a live
+                        update has a stable node to toggle rather than
+                        needing to build this element from scratch in JS. */}
+                    <p
+                      class:list={["remaining", remaining && !remaining.known && "unknown-time"]}
+                      hidden={!remaining}
+                    >
+                      {remaining ? remaining.text : ""}
+                    </p>
                     <span class="confirmed">{confirmedLabel(machine.confirmedAt)}</span>
 
                     <details class="report">
@@ -480,6 +488,22 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
     </main>
 
     <script>
+      // Server-rendered badge text/icon/class (STATUS_META in the
+      // frontmatter above), read once rather than re-derived here, so a
+      // live update can never drift from what a fresh page load would show.
+      const STATUS_META = JSON.parse(document.body.dataset.statusMeta!) as Record<
+        string,
+        { label: string; icon: string; class: string }
+      >;
+
+      interface MachineUpdate {
+        id: string;
+        status: string;
+        expectedEndAt: number | null;
+        confirmedAt: number | null;
+        version: number;
+      }
+
       // A lightweight, anonymous session id — enough to attribute a report
       // to *something* without a login flow. See PROCESS.md: this is
       // deliberately shaped to grow into verified resident accounts later,
@@ -496,6 +520,104 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           return null;
         }
       }
+
+      // Mirrors confirmedLabel()/remainingLabel() in the frontmatter above.
+      // Both need the *client's* current clock, so they can't be shared
+      // directly across the server/client boundary — kept tiny and
+      // behaviourally identical instead of invented differently here.
+      function confirmedLabel(confirmedAt: number | null): string {
+        if (confirmedAt === null) return "never reported";
+        const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+        if (minutes < 1) return "confirmed just now";
+        return `confirmed ${minutes} min ago`;
+      }
+
+      function remainingLabel(expectedEndAt: number | null): { text: string; known: boolean } {
+        if (expectedEndAt === null) return { text: "remaining time unknown", known: false };
+        const minutes = Math.round((expectedEndAt - Date.now()) / 60_000);
+        return minutes > 0
+          ? { text: `${minutes} min left`, known: true }
+          : { text: "should be finishing", known: true };
+      }
+
+      // One status per visible machine, kept in sync with every incoming
+      // update so the summary row never needs a full-page recount.
+      const statusByMachine = new Map<string, string>(
+        Array.from(document.querySelectorAll<HTMLElement>(".machine")).map((el) => [
+          el.dataset.machine!,
+          el.dataset.status!,
+        ]),
+      );
+
+      function updateSummary(): void {
+        const counts: Record<string, number> = { available: 0, "in-use": 0, "out-of-order": 0, unknown: 0 };
+        for (const status of statusByMachine.values()) counts[status] = (counts[status] ?? 0) + 1;
+        for (const [key, count] of Object.entries(counts)) {
+          const el = document.querySelector(`.stat.${key} .value`);
+          if (el) el.textContent = String(count);
+        }
+      }
+
+      // Applies one machine's canonical state to its card — used for a
+      // live push, for the current state a 409 conflict hands back, and
+      // for the re-fetch a (re)connected EventSource triggers below. Never
+      // reloads the page: this *is* "without a reload."
+      function applyMachineUpdate(machine: MachineUpdate): void {
+        const card = document.querySelector<HTMLElement>(`.machine[data-machine="${machine.id}"]`);
+        if (!card) return;
+
+        card.dataset.status = machine.status;
+        card.classList.toggle("machine--broken", machine.status === "out-of-order");
+
+        const meta = STATUS_META[machine.status];
+        const badge = card.querySelector(".badge");
+        if (badge && meta) {
+          badge.className = `badge ${meta.class}`;
+          badge.innerHTML = `<span aria-hidden="true">${meta.icon}</span>${meta.label}`;
+        }
+
+        const remainingEl = card.querySelector<HTMLElement>(".remaining");
+        if (remainingEl) {
+          if (machine.status === "in-use") {
+            const remaining = remainingLabel(machine.expectedEndAt);
+            remainingEl.hidden = false;
+            remainingEl.classList.toggle("unknown-time", !remaining.known);
+            remainingEl.textContent = remaining.text;
+          } else {
+            remainingEl.hidden = true;
+          }
+        }
+
+        const confirmedEl = card.querySelector(".confirmed");
+        if (confirmedEl) confirmedEl.textContent = confirmedLabel(machine.confirmedAt);
+
+        // The next PATCH from this card must match the version it just
+        // saw, not the one the page was originally rendered with.
+        const form = card.querySelector<HTMLFormElement>(".report-form");
+        if (form) form.dataset.version = String(machine.version);
+
+        statusByMachine.set(machine.id, machine.status);
+        updateSummary();
+      }
+
+      // One SSE connection for the whole page. No event replay/history: a
+      // (re)connection just re-fetches current state for every card below,
+      // the same read path any page load already uses — see
+      // notes/adr/0001-realtime-and-concurrent-updates.md.
+      const events = new EventSource("/api/stream");
+
+      events.addEventListener("machine", (event) => {
+        applyMachineUpdate(JSON.parse((event as MessageEvent<string>).data));
+      });
+
+      events.addEventListener("open", () => {
+        const ids = Array.from(document.querySelectorAll<HTMLElement>(".machine")).map(
+          (el) => el.dataset.machine!,
+        );
+        Promise.all(
+          ids.map((id) => fetch(`/api/machines/${id}`).then((res) => res.json() as Promise<MachineUpdate>)),
+        ).then((machines) => machines.forEach(applyMachineUpdate));
+      });
 
       document.querySelectorAll<HTMLFormElement>(".report-form").forEach((form) => {
         form.addEventListener("submit", async (event) => {
@@ -518,17 +640,32 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             }),
           });
 
-          // A conflict means someone else's report (or a lazy decay) landed
-          // since this page loaded its version — reload to show the actual
-          // current state rather than retrying blindly over it. Pushing
-          // that update live instead of needing a reload is Crit 9's
-          // further-along answer; see
-          // notes/adr/0001-realtime-and-concurrent-updates.md.
-          if (res.ok) location.reload();
-          else if (res.status === 409) {
-            alert("someone else just updated this machine — showing the latest");
-            location.reload();
-          } else alert("couldn't save that report — try again");
+          if (res.ok) {
+            // This session's own open SSE connection receives the same
+            // broadcast every other open session does, so the card updates
+            // itself the normal way — nothing left to do but tidy the form.
+            const details = form.closest("details.report");
+            if (details) (details as HTMLDetailsElement).open = false;
+            return;
+          }
+
+          if (res.status === 409) {
+            // Someone else's report, or a lazy decay, landed since this
+            // card was rendered. Say so plainly, show the state the server
+            // actually holds, and let the resident decide whether to
+            // report again — never a silent overwrite and never a silent
+            // reload either.
+            const { current } = await res.json();
+            applyMachineUpdate(current);
+            const label = STATUS_META[current.status]?.label ?? current.status;
+            alert(
+              `This machine changed since you last saw it — it's now reported as "${label}". ` +
+                "The card shows that now; check it and report again if it's still wrong.",
+            );
+            return;
+          }
+
+          alert("couldn't save that report — try again");
         });
       });
     </script>
