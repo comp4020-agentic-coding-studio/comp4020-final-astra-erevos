@@ -1,6 +1,11 @@
 # ADR 0001: Real-time transport and concurrent-update handling
 
-**Status**: Accepted (Crit 9) — implementation pending, landing this crit.
+**Status**: Implemented (Crit 9) — versioning in
+[`9c99f73`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/9c99f73),
+SSE in
+[`85f31d0`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/85f31d0),
+verified both locally and against the live Fly deployment — see
+Verification below.
 
 ## Context
 
@@ -113,3 +118,25 @@ client has to carry and the server has to validate, and the real deployed
 `ALTER TABLE machines ADD COLUMN version INTEGER NOT NULL DEFAULT 1`
 migration — `db/schema.sql`'s `CREATE TABLE IF NOT EXISTS` won't retrofit
 rows that already exist there.
+
+## Verification
+
+Automated: `spec/concurrency.test.ts` (missing `ifVersion` rejected, a
+matching version succeeding and advancing, a stale version rejected with
+409 and the newer state left intact), `spec/realtime.test.ts` (a resident
+report and a read-triggered decay each reaching another open SSE session
+within a small margin around the ~1s target), and an added assertion in
+`spec/decay.test.ts` that a real decay advances `version`. The migration
+was verified against a hand-built pre-version database shape, not just a
+fresh one — existing rows kept their data and gained `version: 1`, and
+re-running it against an already-migrated file was a no-op.
+
+Manual, two independent browser sessions open together, run twice —
+against the local dev server and again against the live Fly deployment
+after CI shipped `85f31d0`: a report in one browser reached the other
+within about a second, card and summary counts both, no reload on either
+side. A stale version forced into the second browser's form produced the
+conflict message, left the newer canonical state untouched, refreshed the
+card to it, and a second, re-confirmed report then succeeded normally —
+the full conflict → refresh → re-confirm → success loop, not just its
+individual pieces, live.

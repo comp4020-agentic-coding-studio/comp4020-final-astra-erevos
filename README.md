@@ -6,50 +6,39 @@ not by sensors.
 
 ## Why this, and why for Toad Hall specifically
 
-The obvious answer to this brief is generic laundry software, built to
-scale to any hall. That's not the bet here. Clay Shirky's
+The obvious answer is generic laundry software, scaled to any hall. That's
+not the bet. Clay Shirky's
 [*Situated Software*](https://gwern.net/doc/technology/2004-03-30-shirky-situatedsoftware.html)
-argues that scalability and generality are choices, not automatic virtues —
-his example is an app built for one specific schoolteacher, not
-"schoolteachers everywhere." Robin Sloan makes a related but different case
-in [*An App Can Be a Home-Cooked Meal*](https://www.robinsloan.com/notes/home-cooked-app/):
-a small app made for people you actually know can be worth building even
-though it will never be a product. Toad Live sits between their two
-examples — bigger than
-Sloan's four-person family app, smaller than a platform meant for any
-resident anywhere — sized to one bounded community: the people who live
-here now.
-
-That's a real constraint, not just a motivation: the app assumes a reader
-already knows what "Block C" means, and skips onboarding, a general
-facility taxonomy, and accounts, because it's answering a question one
-known group already has.
+argues scalability is a choice, not a virtue; Robin Sloan's
+[*An App Can Be a Home-Cooked Meal*](https://www.robinsloan.com/notes/home-cooked-app/)
+argues a small app for people you know is worth building,
+product or not. Toad Live sits between them — bigger than Sloan's
+four-person app, smaller than a platform for any resident anywhere — sized
+to one bounded community: people who live here now and already know
+"Block C" — skipping onboarding, a general facility taxonomy, and
+accounts, since it answers a question one known group already has.
 
 ## Useful at a glance, or it's not useful at all
 
 If checking the app takes longer than walking to the laundry room, nobody
-uses it. So the default view answers one question — which machines are
+uses it. The default view answers one question first: which machines are
 available, in use, out of order or unknown, and, where known, how long an
-in-use machine has left — before anything else. When it was last confirmed
-is secondary, but still visible.
+in-use machine has left. When it was last confirmed is secondary, but
+still visible.
 
 ## Freshness is part of the information, not an afterthought
 
 A resident's report is a claim about a moment, not a fact that stays true.
 The OpenStreetMap wiki's
 [`survey:date`](https://wiki.openstreetmap.org/wiki/Key:survey:date)
-convention — tagging when a crowd-maintained fact was last actually checked
-— is a real precedent for
-exactly this: data that looks current but isn't is worse than data that
-visibly admits its own age. Every machine shows "confirmed N min ago" for
-the same reason, and a timed in-use report already lives by this rule: it
-expires to unknown the instant its own end time passes, no guessing
-involved. Out-of-order is the deliberate exception — it stays until a
-person says otherwise, because a broken machine doesn't fix itself on a
-timer. An available report currently does not expire at all, and the
-broader confirmed → stale → expired model this is building toward —
-including whether available should age out, and what the remaining
-thresholds should be — is still unresolved; see `PROCESS.md`.
+convention — tagging when a crowd-maintained fact was last checked — is
+real precedent: data that looks current but isn't is worse than data that
+admits its age, which is why every machine shows "confirmed N min ago." A
+timed in-use report already lives by it, expiring to unknown the instant
+its end time passes; out-of-order is the exception, staying until a
+person says otherwise — it won't fix itself on a timer; available doesn't
+expire yet. The broader model — whether available should age out, and the
+remaining thresholds — is still unresolved; see `PROCESS.md`.
 
 ## Reporting has to take seconds
 
@@ -59,33 +48,30 @@ being shared.
 
 ## It gets better because other people use it
 
-Toad Live becomes more useful as more residents participate — a single
-person reporting statuses nobody else reads is a diary, not a status
-board. Your reports are only useful because others read them, and theirs
-are only useful because you do too.
+Toad Live gets more useful as more residents participate — one person
+reporting to nobody is a diary, not a status board. Your reports help
+only because others read them, theirs only because you do too.
 
 ## What we chose not to build
 
-Every non-laundry space, verified resident accounts (a session pseudonym
-for now), and any booking or reservation system — this is a status layer,
-not a scheduler.
-
-Real-time delivery between open sessions is in a different category: it's
-now in scope, decided for Crit 9 in
-`notes/adr/0001-realtime-and-concurrent-updates.md`, just not yet
-implemented as this is written. Presence — seeing who else currently has
-the app open — is not part of that decision and remains deliberately out
-of scope.
+Every non-laundry space, verified accounts (a session pseudonym for now),
+and any booking or reservation system — a status layer, not a scheduler.
+Real-time delivery is different: decided and built at Crit 9
+(`notes/adr/0001-realtime-and-concurrent-updates.md`) — a report or decay
+reaches every open session within about a second, no reload, verified
+live. Presence — who else has the app open — stays out of scope.
 
 ## Enforced vs. judged
 
-`spec/` enforces that a report survives an independent later request, and
-that a malformed timestamp is rejected rather than corrupting a row.
-`CLAUDE.md` records the standing rules the agent must preserve: the fixed
-five-room, four-state model, and that any future decay logic must not
-silently expire out-of-order. Left to a person: whether the freshness
-language reads as honest rather than alarmist, and whether the still-open
-decay thresholds end up matching how long a report actually stays useful.
+`spec/` enforces that a report survives an independent later request, a
+malformed timestamp or stale `ifVersion` is rejected (409, newer state
+intact) rather than corrupting or overwriting a row, and a report or decay
+reaches another open session within about a second, no reload. `CLAUDE.md`
+records the standing rules: the fixed five-room, four-state model, that
+decay must never expire out-of-order, and that `version` is server-owned
+and validated like any client number. Left to a person: whether the
+freshness language reads honest, whether decay thresholds match real use,
+and whether the conflict message reads clear, not just correct.
 
 ---
 
