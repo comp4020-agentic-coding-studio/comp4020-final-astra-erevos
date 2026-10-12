@@ -1,153 +1,121 @@
 # Process overview
 
-This file grows across the project as decisions get made and commits land.
-Each entry is a decision or an event, not a task list — where it matters, it
-says what the alternative was, or what went wrong and how it got fixed. This
-update covers the whole run so far, initial concept through the crit 8 deploy.
+This file records the decisions and events that shaped Toad Live — one
+entry per decision or incident, not a task list, saying what the
+alternative was or what broke and how it got fixed. Rewritten at Crit 9 to
+stay inside the project's own length target; detail trimmed from here still
+lives in the commits it cites.
 
-## The project
+## Concept and stack
 
-Toad Live is a resident-maintained live status board for Toad Hall's shared
-laundry: five real rooms (A/B, C, E, F, G — D has none; its ground floor is
-the Anton Aalbers Room instead), one washer and one dryer each, ten machines
-total. It started from a real, personal complaint: there's no shared view of
-which machine is free, and a human report is only trustworthy for as long as
-it stays fresh. The audience (current Toad Hall residents, not a generic
-public), the laundry facts, the four real machine states (available, in-use,
-out-of-order, unknown), out-of-order's stickiness, and the
-washer-display-vs-dryer-estimate distinction for remaining time were all
-interrogated in conversation and landed as the project's design anchor and
-first decision record in
+Toad Live began from a real complaint: no shared view of which Toad Hall
+laundry machine is free, and a human report is only trustworthy while it
+stays fresh. The audience (current residents, not a generic public), the
+five real locations (A/B, C, E, F, G — D has none), the four machine
+states, out-of-order's stickiness, and the washer-display-vs-dryer-estimate
+distinction for remaining time were interrogated in conversation and
+landed as the design anchor in
 [`4028255`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/4028255).
+Astro was chosen the same session: it keeps mostly-static pages cheap while
+allowing the small dynamic surface the app needs, and fits the fixed
+256MB/one-machine Fly shape more comfortably than a heavier SSR framework.
+Storage is SQLite via `node:sqlite` on the one thing Fly actually persists,
+`/data` — no native dependency, no separate database server.
 
-## Stack, and why crit 8 is persistence-only
-
-Astro was chosen as the stack
-([`4028255`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/4028255)):
-it keeps mostly-static pages cheap while still allowing the small dynamic
-surface this app needs — reading and writing machine status — and it fits
-the fixed 256MB/one-machine shape far more comfortably than a heavier SSR
-framework. Storage is SQLite, via Node's built-in `node:sqlite`, on the one
-thing the Fly setup actually persists: the `/data` volume. That avoids a
-native dependency and a separate database server the course setup doesn't
-provide.
-
-Crit 8's own spec says the real-time layer can wait until "All at once" at
-the next crit, so real-time was deliberately not built this week — the one
-thing crit 8 proves is that a stranger's report to a machine survives their
-own return visit. Building it now would have spent the week on something
-that isn't part of crit 8's proof-of-life target. The five-room, ten-machine scope was a later
-refinement of the original plan (a single room): since the layout turned out
-fully uniform and already known, building all five cost barely more than
-building one, and demonstrates a real status layer rather than a
-one-room toy.
-
-## The first persistence slice
+## Crit 8: persistence, then a bug that mattered
 
 [`6ffddd8`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/6ffddd8)
-is where the app became an app: Astro in server mode via `@astrojs/node`, a
-`machines` table seeded with the ten real machines, a `GET`/`PATCH
-/api/machines/:id` route, and a persistence test covering crit 8's core
-mechanically checkable persistence interaction — a status update checked by
-two independent HTTP requests, the same shape a stranger's return visit
-takes. The busybox placeholder was replaced entirely; nothing
-from it survives except the fixed Dockerfile/fly.toml contract it was
-proving.
+is where the app became an app: Astro in server mode, the `machines` table
+seeded with all ten real machines, `GET`/`PATCH /api/machines/:id`, and a
+persistence test covering Crit 8's actual proof — a status update checked
+by an independent later request, the same shape a stranger's return visit
+takes. Crit 8 covered all five rooms, not one: the layout was uniform and
+already known, so building all five cost barely more than one and proved a
+real status layer rather than a toy.
 
-## From engineering prototype to a dashboard, in two passes
+The prototype then got two manual visual passes: once end-to-end tested, a
+warm communal identity and redundant icon+text status badges (in-use reads
+as neutral occupied blue, not an alarming amber), reporting moved behind a
+disclosure; then a narrower refinement for desktop balance, a consistent
+washer/dryer icon pair, and a stamped hazard-stripe treatment evoking Toad
+Hall's real out-of-order notices. Both landed together in
+[`ce3c5aa`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/ce3c5aa),
+no schema change in either.
 
-The first working version was, by design, a stack of raw `<select>`s and
-buttons — functionality before form. Once I'd manually tested it end to end
-(all five rooms, a washer and a dryer update, reload-persistence) and
-confirmed the interaction worked, I asked for a first visual pass: a warm,
-communal identity rather than a generic admin panel, colour-coded status
-badges with redundant icon+text (in-use reads as a neutral occupied blue,
-not an alarming amber — nothing's wrong when a machine is just running),
-prominent remaining time, and reporting moved behind a disclosure so the
-default view reads rather than edits.
+Verifying persistence meant a real Fly redeploy check, not a local restart,
+and it surfaced a real incident: a malformed timestamp, sent by accident,
+got written unvalidated into `started_at`. `node:sqlite` throws rather than
+truncate when it later reads an `INTEGER` past `Number.MAX_SAFE_INTEGER`,
+so that row 500'd on every subsequent request, not just the one that
+caused it. Diagnosing it meant reading live `flyctl logs` back to the
+failing line, reproducing it locally, and repairing the live row via
+`flyctl ssh console`. The durable fix, in
+[`3c0b63f`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/3c0b63f):
+`PATCH` rejects any `startedAt`/`expectedEndAt` that isn't a safe positive
+integer before it reaches SQLite, a regression test asserts it, and
+`CLAUDE.md` carries the rule generally. With that deployed, the redeploy
+check ran clean — a known report came back byte-identical after a real
+image redeploy.
 
-After manually reviewing that pass I asked for a second, narrower refinement
-rather than a further redesign: more deliberate use of desktop width with
-the five blocks centred as a balanced 3+2 rather than grid-stretched, a
-consistent inline-SVG icon pair for washer/dryer, "Block" demoted from a
-card to a zone label so only the machine itself reads as a card, a more
-obviously tappable "Update status" chip, and a distinctive stamped
-hazard-stripe treatment for out-of-order, evoking the real taped-up notices
-at Toad Hall. Both passes, once manually approved, landed together in
-[`ce3c5aa`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/ce3c5aa) —
-no schema or persistence change in either.
+## Closing the in-use leak
 
-## Verifying persistence for real, and the incident that came with it
+A resident reported, after Crit 8, that an in-use machine never stopped
+being in-use — a dryer nobody estimated an end time for had no path off
+"in-use" at all.
+[`f9ed19c`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/f9ed19c)
+added lazy decay, computed on an ordinary read, never pushed: with
+`expected_end_at` set, the machine decays to `unknown` the instant it
+passes, exact, no threshold guessed; with it unset, a fixed window since
+`started_at` — currently a **provisional** 12 hours
+(`UNTIMED_IN_USE_DECAY_MS` in `src/lib/db.ts`), picked to be clearly longer
+than any real cycle, not measured. `available` and `out-of-order` are
+untouched — out-of-order stays sticky as `CLAUDE.md` requires, and the
+resident's own report confirmed `available` shouldn't auto-expire either.
+Covered by `spec/decay.test.ts`.
 
-Local tests proving persistence are one thing; the brief's actual promise is
-that it survives a real restart or redeploy on Fly. Verifying that meant:
-deploy, `PATCH` a machine to a known state, redeploy again, and check the
-exact same fields come back.
+## Crit 9: real-time, and the concurrency decision
 
-The first attempt surfaced a real bug, not a hypothetical one: a malformed
-timestamp — a shell date-formatting mistake on my end, not something the UI
-itself can send — got written to `started_at` unvalidated. `node:sqlite`
-throws rather than silently truncate when it reads an `INTEGER` back that's
-larger than `Number.MAX_SAFE_INTEGER`, so that one row started 500ing on
-*every* subsequent `GET` or `PATCH`, not just the request that caused it.
-Diagnosing it meant reading the live `flyctl logs` trace back to the exact
-line, confirming the cause by reproducing it locally, and repairing the live
-row directly via `flyctl ssh console`, since the volume itself, not just the
-code, needed fixing.
+The brief's demand: a change one resident makes reaches every other open
+session within about a second, with no reload, plus one decided and
+justified call about simultaneous use. Both are recorded in full in
+[`notes/adr/0001-realtime-and-concurrent-updates.md`](notes/adr/0001-realtime-and-concurrent-updates.md);
+summarised here.
 
-The durable fix, in
-[`3c0b63f`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/3c0b63f),
-is the actual lesson: `PATCH` now rejects any `startedAt`/`expectedEndAt`
-that isn't a safe, positive integer with a 400 before it reaches SQLite, a
-regression test asserts exactly this case, and `CLAUDE.md` carries the rule
-generally — any future numeric field from a client needs the same guard, not
-a try/catch after the fact. This is what this file is supposed to hold: an
-agent-directed system hit a real failure in the field, and the fix is
-durable — code, test, and rule — not a retry.
+**Transport**: server-sent events, over WebSocket (the app never needs to
+push anything back over the live channel — writes stay `PATCH`) and over
+polling (fights the auto-stop-to-zero economics `fly.toml` is built
+around). One Fly machine, one Node process, so there's no cross-instance
+broadcast problem to solve.
 
-With that fix deployed, the redeploy check ran clean: a known report to
-`g-dryer` came back byte-identical — `startedAt`, `expectedEndAt`,
-`confirmedAt`, `reporterId` all unchanged — after a real image redeploy (the
-machine's version number moved), which is the actual proof the `/data`
-volume does what `fly.toml` claims it does.
+**Concurrency**: optimistic concurrency over last-write-wins. Plain LWW can
+silently discard a newer state with no sign anything was lost — including
+resurrecting a report the server's own lazy decay already invalidated,
+since decay is a real write to the row too. Preserving every conflicting
+report instead was considered and rejected: it costs the "useful at a
+glance" property README asks for, for a problem this app hasn't hit yet.
+`machines` gains a server-owned `version`, starting at 1, incremented
+atomically on every persisted mutation — a resident's report or a decay
+transition alike. A `PATCH` echoes the version it last saw; a mismatch is
+rejected with 409 and the current canonical state, never silently applied.
+Decay's own trigger is unchanged: still lazy, still only evaluated on an
+ordinary read; a reconnecting client's re-fetch is itself that read, so
+nothing needed inventing there. Landing this on the real `/data` volume
+needs an explicit `ALTER TABLE` migration, since `db/schema.sql`'s
+`CREATE TABLE IF NOT EXISTS` won't touch rows that already exist there —
+the same kind of gap the timestamp incident above taught to check for
+rather than assume.
 
-## Closing the in-use leak: a resident-reported bug after crit 8
-
-A resident pointed out, after crit 8's deadline, that an in-use machine
-never stopped being in-use: once its `expected_end_at` passed, the card
-just kept reading "should be finishing" indefinitely, and a dryer whose
-owner never estimated an end time (`expected_end_at` null) had no path off
-"in-use" at all. That's a real gap in the confirmed → stale → expired model
-the README already describes as the goal, not a new feature.
-
-The fix is a lazy decay, computed on an ordinary read (page load /
-`GET`, never pushed — real-time sync is still out of scope until that work
-explicitly begins), and it only ever touches `in-use`:
-
-- with `expected_end_at` set, the machine decays to `unknown` the moment
-  that time passes. No threshold is invented here — the report's own end
-  time is the signal, so this is exact, not guessed.
-- with `expected_end_at` null (the untimed-dryer case the resident raised),
-  it falls back to a fixed window since `started_at`, currently 12 hours.
-
-That 12-hour number is explicitly **provisional**, not a settled minute
-value — CLAUDE.md is clear that the actual decay thresholds are an open
-question pending real cycle-time data, and this one is a placeholder
-picked to be clearly longer than any real wash/dry cycle, not a measured
-one. It's marked as such in `src/lib/db.ts` (`UNTIMED_IN_USE_DECAY_MS`) and
-needs revisiting once real data exists, alongside the still-wide-open
-available/unknown lifetimes tracked in
-`notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. `available` and
-`out-of-order` are untouched by this change — out-of-order stays sticky,
-exactly as CLAUDE.md requires, and the resident's own report confirmed
-`available` shouldn't auto-refresh either. Covered by
-`spec/decay.test.ts`.
+Three contract tests land with the implementation, starting red: a
+resident report reaching another open session without reload, a stale
+`ifVersion` rejected with 409 while the newer state stays untouched, and a
+read-triggered decay reaching another open session as `unknown`. The
+existing decay test also gains an assertion that a real decay advances
+`version`, not just the status.
 
 ## What's still ahead
 
-Real-time sync (crit 9), the remaining decay/staleness thresholds beyond
-the provisional in-use window above (pending real cycle-time data, not
-guessed), verified resident identity, and every non-laundry space stay
-deliberately out of scope — see `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md`
-for the fuller list. README's own citations for its definition of good are
-the next piece of process still missing.
+The broader freshness policy beyond the in-use window above —
+`available`/`unknown` lifetimes, the provisional 12-hour value itself —
+stays open pending real cycle-time data, tracked in
+`notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. Verified resident identity
+and every non-laundry space remain deliberately out of scope.

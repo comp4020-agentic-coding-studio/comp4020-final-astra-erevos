@@ -32,13 +32,28 @@ let this file, the README's argument, and the code drift apart.
 - **`confirmed_at` may be null** — a machine that's never been reported has
   no confirmation to show. Don't default it to "now" at seed time or treat
   null as an error.
+- **`version` is a server-owned counter, starting at 1.** Every persisted
+  mutation to a machine row — a resident's report or a lazy decay
+  transition — increments it atomically as part of that same write. A
+  client never sets it; a `PATCH` only echoes the version it last saw
+  (`ifVersion`), validated as a safe positive integer by the same guard
+  `startedAt`/`expectedEndAt` already get. A mismatch means the client's
+  view is stale: reject with 409 and the current canonical machine state,
+  never apply the write. See `notes/adr/0001-realtime-and-concurrent-updates.md`.
 
 ## Scope discipline (see PROCESS.md for the reasoning)
 
-- **No real-time transport** (WebSocket, SSE, or push of any kind) until the
-  real-time work explicitly begins at the next crit. Until then, status
-  reflects on page load only — don't add "just a small" live-update path
-  ahead of that decision.
+- **Real-time transport is SSE, one-directional and push-only.** Writes
+  stay `PATCH` over plain HTTP; the server pushes a machine's canonical
+  state outward only after a mutation actually commits to SQLite — never
+  speculatively. This covers both an explicit resident report and a lazy
+  decay transition (the decay rules above are unchanged by this — decay
+  still only evaluates on an ordinary read, never on a timer or a
+  connection event). The in-process SSE subscriber list is transport
+  plumbing, not data: it holds no fact about any machine, is never
+  written to SQLite, and is correctly rebuilt from scratch by every
+  reconnect — the persistence rule below governs machine rows, not open
+  connections. See `notes/adr/0001-realtime-and-concurrent-updates.md`.
 - **Do not invent decay/staleness thresholds.** The confirmed → stale →
   expired model is settled; the actual minute values are an open question
   pending real cycle-time data. If a number is needed to make something
@@ -53,7 +68,9 @@ let this file, the README's argument, and the code drift apart.
 - All state that matters must live in SQLite on the `/data` volume. Nothing
   load-bearing may exist only in server memory — it has to survive a
   restart or redeploy, since that's the one thing Crit 8 is actually
-  checked on.
+  checked on. An open SSE connection is the one explicit exception: it
+  carries no fact of its own and is fully reconstructed on the next
+  reconnect, so the subscriber list may live only in memory.
 - **Validate `startedAt`/`expectedEndAt` as safe, positive integers before
   writing them.** A real incident during the crit 8 redeploy check: an
   unvalidated, oversized client timestamp got written to SQLite and

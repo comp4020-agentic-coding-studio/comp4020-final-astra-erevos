@@ -42,9 +42,14 @@ convention — tagging when a crowd-maintained fact was last actually checked
 — is a real precedent for
 exactly this: data that looks current but isn't is worse than data that
 visibly admits its own age. Every machine shows "confirmed N min ago" for
-the same reason, and the confirmed → stale → expired model it's building
-toward — thresholds still unresolved; see `PROCESS.md` — exists so an old
-"free" report eventually stops reading as current fact.
+the same reason, and a timed in-use report already lives by this rule: it
+expires to unknown the instant its own end time passes, no guessing
+involved. Out-of-order is the deliberate exception — it stays until a
+person says otherwise, because a broken machine doesn't fix itself on a
+timer. An available report currently does not expire at all, and the
+broader confirmed → stale → expired model this is building toward —
+including whether available should age out, and what the remaining
+thresholds should be — is still unresolved; see `PROCESS.md`.
 
 ## Reporting has to take seconds
 
@@ -62,8 +67,15 @@ are only useful because you do too.
 ## What we chose not to build
 
 Every non-laundry space, verified resident accounts (a session pseudonym
-for now), real-time updates between open sessions, and any booking or
-reservation system — this is a status layer, not a scheduler.
+for now), and any booking or reservation system — this is a status layer,
+not a scheduler.
+
+Real-time delivery between open sessions is in a different category: it's
+now in scope, decided for Crit 9 in
+`notes/adr/0001-realtime-and-concurrent-updates.md`, just not yet
+implemented as this is written. Presence — seeing who else currently has
+the app open — is not part of that decision and remains deliberately out
+of scope.
 
 ## Enforced vs. judged
 

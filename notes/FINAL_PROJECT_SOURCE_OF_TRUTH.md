@@ -282,8 +282,15 @@ in PROCESS.md, not a gap:
 - **real-time sync** between simultaneous sessions — the final-project brief
   places this at the next crit ("All at once"), and Crit 8's own spec says
   the real-time layer can wait;
-- **decay/staleness thresholds** for available/in-use/unknown (when a report
-  goes confirmed → stale → expired) — left open pending real machine
+- **decay/staleness thresholds** — partially settled since this was
+  written (2026-10-01). A timed in-use report (`expected_end_at` set) now
+  expires to `unknown` exactly when that time passes, no threshold
+  needed — see PROCESS.md, "Closing the in-use leak." An untimed in-use
+  report falls back to an explicitly **provisional** 12-hour window
+  (`UNTIMED_IN_USE_DECAY_MS` in `src/lib/db.ts`). `available` does not
+  decay. `out-of-order` remains sticky, never time-based. The broader
+  freshness policy beyond this — available/unknown lifetimes, the
+  provisional window's real value — is still open, pending real
   cycle-time data, not guessed;
 - verified resident identity — stays a lightweight anonymous/pseudonymous
   session for now, schema-compatible with adding verification later;
@@ -308,7 +315,10 @@ The following should be interrogated before they are fixed:
 - exact resident identity / verification model;
 - whether non-residents can see any information;
 - how updates are attributed;
-- how conflicts between two simultaneous updates are handled;
+- how conflicts between two simultaneous updates are handled — **decided**
+  for Crit 9 (optimistic concurrency / stale-write rejection): see
+  `notes/adr/0001-realtime-and-concurrent-updates.md`; implementation
+  lands with Crit 9's real-time work;
 - the lifetime of each ordinary, non-sticky status (out-of-order is now
   confirmed as non-expiring — see §3);
 - whether historical state is useful or only the present matters;
