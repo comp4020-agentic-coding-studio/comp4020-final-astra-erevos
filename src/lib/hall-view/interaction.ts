@@ -43,6 +43,13 @@ export interface InteractionHandle {
   update(deltaSeconds: number): void;
   /** Exposed so the overlay's close (×) button can trigger the same dismissal a click-on-background or Escape does. */
   returnToOverview(): void;
+  /** Stage 2.3 — the currently focused target's id, or null. Lets
+   * scene.ts's applyMachineUpdate() know whether an incoming update is
+   * for the machine whose focus panel is currently showing — if so, the
+   * panel's *content* (status/confirmedAt/expectedEndAt) needs
+   * refreshing too, not just the 3D mesh, since someone else's report
+   * can change what it should say while it's open. */
+  focusedTargetId(): string | null;
   /** Recomputes the focus fit for whatever's currently focused, and
    * snaps to the new overview position/lookAt/zoom if nothing is
    * focused — called by scene.ts on resize, since both depend on the
@@ -334,5 +341,9 @@ export function createInteraction(
     window.removeEventListener("keydown", handleKeydown);
   }
 
-  return { update, returnToOverview, refreshFraming, dispose };
+  function focusedTargetId(): string | null {
+    return focusedTarget?.id ?? null;
+  }
+
+  return { update, returnToOverview, refreshFraming, focusedTargetId, dispose };
 }

@@ -1,14 +1,25 @@
 // Stage 1: the A/B room, fixed camera, real-time initial state.
 // Stage 2: hover/click interaction on those same two machines — a cyan
 // selection outline + ground glow + mini info card on hover, a camera
-// dolly-in + fuller HUD detail panel on click. Still no SSE wiring (a
-// later stage) — index.astro's existing applyMachineUpdate() does not
-// call into this module yet.
+// dolly-in + fuller HUD detail panel on click.
 //
 // Stage 2.2 — both the overview camera and the per-machine focus camera
 // (interaction.ts) are now computed by camera-fit.ts's fitBoundsToRect()
 // from the room's real world-space bounds, not a hand-tuned
 // frustumHalfHeight constant verified by screenshotting one viewport.
+//
+// Stage 2.3 — wired into the dashboard's existing canonical update path.
+// index.astro's dashboard script and this module's own mount script are
+// two SEPARATE inline <script type="module"> blocks — Astro compiles
+// each into its own module (confirmed: they each get a distinct
+// ?astro&type=script&index=N URL) — but both import this same file, and
+// ES modules are singletons keyed by URL, so both scripts end up
+// sharing the exact same module instance of everything below, including
+// the mountedScenes registry. That's what lets index.astro's
+// applyMachineUpdate() call this module's applyMachineToScene() directly
+// — no second EventSource, no second state model, no window-global
+// bridge: just one more function imported from the one scene module,
+// same as mount() already was.
 import * as THREE from "three";
 import type { Machine, MachineType } from "../types.ts";
 import { buildRoom } from "./room.ts";
@@ -20,6 +31,32 @@ import { boundsCorners, fitBoundsToRect } from "./camera-fit.ts";
 export interface HallViewHandle {
   /** Stops the render loop and frees GPU resources — call on page teardown if ever needed. */
   dispose(): void;
+}
+
+// Stage 2.3 — every mounted hall-view scene registers itself here so
+// applyMachineToScene() can reach it. In practice there is exactly one
+// (the A/B room), but this is a list, not a single nullable reference,
+// so Stage 3 (more rooms, each its own mount() call) needs no change
+// here at all — a machine update just gets routed to whichever mounted
+// scene actually has that machine id, the same way it already gets
+// routed to whichever dashboard card has it.
+interface MountedScene {
+  applyMachineUpdate(machine: Machine): void;
+}
+const mountedScenes = new Set<MountedScene>();
+
+/**
+ * The one function index.astro's dashboard script calls from inside its
+ * own existing applyMachineUpdate() — the single canonical update path
+ * (SSE push, 409-conflict canonical state, and reconnect re-fetch all
+ * already funnel through that one function). This is the 3D view's only
+ * subscriber to that path: it owns no second EventSource, no second
+ * fetch, no second reconnect/backoff logic, and cannot disagree with the
+ * dashboard about a machine's state, since both are painting the exact
+ * same event.
+ */
+export function applyMachineToScene(machine: Machine): void {
+  for (const scene of mountedScenes) scene.applyMachineUpdate(machine);
 }
 
 // True isometric angle (not an arbitrary tilt): atan(1/sqrt(2)) elevation.
@@ -206,6 +243,37 @@ export function mount(container: HTMLElement, machines: Machine[]): HallViewHand
     overlay.updateFocusPosition(screenX, screenY, width, height);
   }
 
+  // Stage 2.3 — the one place a real update actually touches the scene.
+  // Looks the machine up by id (machineHandles is already keyed that
+  // way for exactly this kind of lookup) and:
+  //  - applies its new status to the mesh (material, drum spin on/off,
+  //    hazard tape, LED) via the existing setStatus() — the same
+  //    per-status look built in Stage 1/2, now just reachable from a
+  //    live update instead of only from the initial mount;
+  //  - if this machine's focus panel is currently open, refreshes its
+  //    displayed content (status/confirmed/remaining) too — otherwise a
+  //    resident watching a focused machine while someone else reports
+  //    it would see the 3D mesh change but the panel's text go stale.
+  // Nothing here creates a new mesh, a new interaction target, or
+  // touches the camera — an update changes what's already there, it
+  // never adds or removes a machine (the room's machine list is fixed
+  // per CLAUDE.md).
+  function applyMachineUpdate(machine: Machine): void {
+    const handle = machineHandles.get(machine.id);
+    if (!handle) return;
+    handle.setStatus(machine.status);
+
+    const target = interactionTargets.find((t) => t.id === machine.id);
+    if (target) target.machine = machine;
+
+    if (interaction.focusedTargetId() === machine.id) {
+      overlay.showFocus(machine);
+    }
+  }
+
+  const registeredScene: MountedScene = { applyMachineUpdate };
+  mountedScenes.add(registeredScene);
+
   function handleResize(): void {
     const width = container.clientWidth;
     const height = Math.max(container.clientHeight, 1);
@@ -248,6 +316,7 @@ export function mount(container: HTMLElement, machines: Machine[]): HallViewHand
     overlay.dispose();
     renderer.dispose();
     container.removeChild(renderer.domElement);
+    mountedScenes.delete(registeredScene);
   }
 
   return { dispose };

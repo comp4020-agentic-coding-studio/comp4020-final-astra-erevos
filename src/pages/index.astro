@@ -711,11 +711,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       </section>
     </main>
 
-    {/* Live Hall View mount — a separate, isolated module script. It
-        touches only #hall-view-canvas and never the dashboard markup
-        below; the dashboard's own script (next) knows nothing about
-        this one, and vice versa, matching the Stage 1 design: additive,
-        not wired into the dashboard's state machinery yet. */}
+    {/* Live Hall View mount — its own inline <script> block, still
+        touching only #hall-view-canvas, never the dashboard markup.
+        Stage 2.3: the dashboard's own script (next) now imports
+        applyMachineToScene from this same scene.ts module to feed it
+        live updates — see that import's own note on how two separate
+        inline <script> blocks share one module instance. Nothing here
+        changes: this block still only mounts the scene from the
+        page's initial state; it's the *other* script that reaches
+        into this module now, not this one reaching out. */}
     <script>
       import { mount } from "../lib/hall-view/scene.ts";
       import type { Machine } from "../lib/types.ts";
@@ -739,6 +743,14 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
     </script>
 
     <script>
+      // Stage 2.3: the 3D hall view's only hook into live updates — see
+      // scene.ts's own note on why importing this here, from a second,
+      // separate inline <script> block, still reaches the same module
+      // instance mount() runs in (ES modules are singletons keyed by
+      // URL; both scripts import the same file).
+      import { applyMachineToScene } from "../lib/hall-view/scene.ts";
+      import type { Machine } from "../lib/types.ts";
+
       // Server-rendered badge text/icon/class (STATUS_META in the
       // frontmatter above), read once rather than re-derived here, so a
       // live update can never drift from what a fresh page load would show.
@@ -747,13 +759,14 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         { label: string; icon: string; class: string }
       >;
 
-      interface MachineUpdate {
-        id: string;
-        status: string;
-        expectedEndAt: number | null;
-        confirmedAt: number | null;
-        version: number;
-      }
+      // The server's actual GET/PATCH/SSE payloads are the full Machine
+      // shape (src/lib/types.ts) — this was previously its own narrower
+      // local interface (id/status/expectedEndAt/confirmedAt/version
+      // only, with status typed as a loose string) that happened to
+      // cover what the dashboard card needed. Widened to the real
+      // Machine type so the exact same payload can also be handed to
+      // applyMachineToScene() below without a cast or a second parse.
+      type MachineUpdate = Machine;
 
       // Mirrors confirmedLabel()/remainingLabel() in the frontmatter above.
       // Both need the *client's* current clock, so they can't be shared
@@ -796,7 +809,17 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // live push, for the current state a 409 conflict hands back, and
       // for the re-fetch a (re)connected EventSource triggers below. Never
       // reloads the page: this *is* "without a reload."
+      //
+      // Stage 2.3: also the Hall View's only subscriber to this same
+      // canonical path (see applyMachineToScene's own note in scene.ts).
+      // Called unconditionally, before the dashboard-card early return
+      // below, since it's an orthogonal concern: applyMachineToScene()
+      // already no-ops for any machine id it has no mesh for (today,
+      // anything outside the A/B room), the same way this function's
+      // own card lookup no-ops for an id it finds no card for.
       function applyMachineUpdate(machine: MachineUpdate): void {
+        applyMachineToScene(machine);
+
         const card = document.querySelector<HTMLElement>(`.machine[data-machine="${machine.id}"]`);
         if (!card) return;
 
