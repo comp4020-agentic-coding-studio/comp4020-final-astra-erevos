@@ -59,9 +59,16 @@ let this file, the README's argument, and the code drift apart.
   pending real cycle-time data. If a number is needed to make something
   runnable, it must be clearly marked provisional in code and called out in
   `PROCESS.md` — never landed as if it were settled.
-- **No login/authentication system yet.** Identity stays an anonymous or
-  pseudonymous session token attached to each report. Don't build account
-  creation, passwords, or verification without a new decision record.
+- **No verified-resident accounts yet.** Identity is a server-issued,
+  pseudonymous session: the server generates a high-entropy credential,
+  stores only its hash, and authenticates a request by verifying
+  possession of that credential — this *is* an authentication boundary,
+  just not an identity-verification one. A client-asserted actor field
+  (e.g. a body field claiming who made a report) must never be trusted;
+  the server resolves the actor itself from the session credential. Don't
+  build account creation, passwords, or verification of who a person
+  actually is without a new decision record. See
+  `notes/adr/0002-identity-and-permissions.md`.
 
 ## Persistence
 
