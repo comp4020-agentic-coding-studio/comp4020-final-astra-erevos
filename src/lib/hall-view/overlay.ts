@@ -9,6 +9,7 @@
 // the dashboard's existing, already-tested script.
 import type { Machine } from "../types.ts";
 import { confirmedLabel, remainingLabel } from "./format.ts";
+import { HUD_SCAN_SECONDS, prefersReducedMotion } from "./motion.ts";
 
 const STATUS_LABELS: Record<Machine["status"], string> = {
   available: "Available",
@@ -69,6 +70,24 @@ export function createOverlay(container: HTMLElement, onCloseFocus: () => void):
   focusPanel.className = "hall-focus-panel";
   focusPanel.hidden = true;
   container.appendChild(focusPanel);
+
+  // Stage 4 — the panel's fade/slide reveal is a CSS transition on this
+  // INNER wrapper, not on focusPanel itself: focusPanel's own `transform`
+  // is already claimed every frame by positionFocusPanel's screen-space
+  // clamp (`transform: none` plus explicit left/top — see that
+  // function's own note), so animating this reveal there would fight
+  // that positioning logic. A separate inner element keeps "where the
+  // panel sits" (focusPanel, unanimated) and "how it appears/disappears"
+  // (this wrapper) independent, the same separation of concerns the
+  // panel-vs-camera framing already has elsewhere in this module.
+  const focusPanelInner = document.createElement("div");
+  focusPanelInner.className = "hall-focus-panel__inner";
+  focusPanel.appendChild(focusPanelInner);
+  // Duration set from JS, once, from the single HUD_SCAN_SECONDS source
+  // of truth shared with machine-mesh.ts's bracket/outline scan — same
+  // "don't let two hand-authored numbers drift apart" reasoning
+  // STEM_LENGTH_PX below already follows for the stem length.
+  focusPanelInner.style.setProperty("--hall-focus-reveal-seconds", `${HUD_SCAN_SECONDS}s`);
 
   function showHover(machine: Machine | null, screenX: number, screenY: number): void {
     if (!machine) {
@@ -159,13 +178,38 @@ export function createOverlay(container: HTMLElement, onCloseFocus: () => void):
     focusPanel.style.top = `${clampedTop}px`;
   }
 
+  // Stage 4 — pending scan-out timer, so a second showFocus() call
+  // arriving before a previous hide's animation finishes (rapid
+  // click-another-machine, or click-then-immediately-Escape) cancels the
+  // stale hide instead of letting it fire later and hide a panel that's
+  // since been shown again for a different machine.
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
   function showFocus(machine: Machine | null, screenX?: number, screenY?: number): void {
+    if (hideTimer !== null) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
     if (!machine) {
-      focusPanel.hidden = true;
+      // Stage 4 — scan-out: remove the "revealed" class so the CSS
+      // transition (see index.astro's .hall-focus-panel__inner rules)
+      // animates opacity/transform back down, THEN actually hide the
+      // element once that transition would have finished — matching the
+      // reveal's own coordinated timing rather than vanishing instantly.
+      // Reduced motion hides immediately, no transition, no timer.
+      focusPanelInner.classList.remove("hall-focus-panel__inner--revealed");
+      if (prefersReducedMotion()) {
+        focusPanel.hidden = true;
+      } else {
+        hideTimer = setTimeout(() => {
+          focusPanel.hidden = true;
+          hideTimer = null;
+        }, HUD_SCAN_SECONDS * 1000);
+      }
       return;
     }
     const remaining = machine.status === "in-use" ? remainingLabel(machine.expectedEndAt) : null;
-    focusPanel.innerHTML = `
+    focusPanelInner.innerHTML = `
       <button type="button" class="hall-focus-panel__close" aria-label="Close detail view">×</button>
       <div class="hall-focus-panel__header">
         <span class="hall-focus-panel__room">${roomLabel(machine)}</span>
@@ -178,6 +222,23 @@ export function createOverlay(container: HTMLElement, onCloseFocus: () => void):
       </dl>
     `;
     focusPanel.hidden = false;
+    // Stage 4 — the reveal class is added on the NEXT frame, not
+    // synchronously here: the element was just unhidden (or just had its
+    // content replaced) this same tick, and toggling a transitioned class
+    // in the same tick as an element becomes visible can be collapsed by
+    // the browser into "no transition, just appear at the end state" —
+    // the classic "force a reflow" requirement for CSS transitions
+    // triggered from JS. Reduced motion skips the class entirely (the
+    // CSS rule below is itself written to only transition when the class
+    // is present), so it just appears at its final state immediately.
+    focusPanelInner.classList.remove("hall-focus-panel__inner--revealed");
+    if (!prefersReducedMotion()) {
+      requestAnimationFrame(() => {
+        focusPanelInner.classList.add("hall-focus-panel__inner--revealed");
+      });
+    } else {
+      focusPanelInner.classList.add("hall-focus-panel__inner--revealed");
+    }
     // showFocus's own initial call (from scene.ts's onFocusChange) omits
     // screenX/screenY — the very next updateFocusPosition() call (also
     // triggered synchronously from that same callback) supplies the
@@ -186,7 +247,7 @@ export function createOverlay(container: HTMLElement, onCloseFocus: () => void):
     if (screenX !== undefined && screenY !== undefined) {
       positionFocusPanel(screenX, screenY, container.clientWidth, container.clientHeight);
     }
-    focusPanel.querySelector(".hall-focus-panel__close")?.addEventListener("click", onCloseFocus);
+    focusPanelInner.querySelector(".hall-focus-panel__close")?.addEventListener("click", onCloseFocus);
   }
 
   function updateFocusPosition(screenX: number, screenY: number, containerWidth: number, containerHeight: number): void {
@@ -195,6 +256,7 @@ export function createOverlay(container: HTMLElement, onCloseFocus: () => void):
   }
 
   function dispose(): void {
+    if (hideTimer !== null) clearTimeout(hideTimer);
     hoverCard.remove();
     focusPanel.remove();
   }

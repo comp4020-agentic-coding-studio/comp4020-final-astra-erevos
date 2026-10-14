@@ -88,6 +88,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Toad Live — laundry</title>
+    {/* Stage 4 — fixes the real /favicon.ico 404 that showed up in every
+        console check this session. A plain static SVG (no build step, no
+        new dependency): a washer porthole in the app's own ink/moss-green
+        palette, not a generic placeholder. public/favicon.ico is the
+        exact same file content at that exact path, for browsers that
+        request /favicon.ico directly rather than reading this tag — most
+        browsers don't validate file-extension-vs-content for a favicon,
+        confirmed via a real request against this dev server. */}
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <style>
       :root {
         color-scheme: light;
@@ -530,17 +539,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         position: absolute;
         z-index: 3;
         width: 11.5rem;
-        padding: 0.7rem 0.8rem 0.6rem;
-        border-radius: 10px;
-        background: rgba(20, 16, 12, 0.88);
-        border: 1px solid rgba(95, 232, 224, 0.55);
-        box-shadow: 0 0 18px rgba(95, 232, 224, 0.3);
         color: #eafffd;
         font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
       }
       /* The connecting "stem" — a short vertical line from the panel's
          bottom edge down to the anchor point, making the two visually
-         one instrument rather than two unrelated floating pieces. */
+         one instrument rather than two unrelated floating pieces. Stays
+         on the outer (unanimated) element, not the inner reveal wrapper
+         below — the stem is positioning/framing, not part of the
+         fade/slide-in content, so it shouldn't animate in sync with it. */
       .hall-focus-panel::after {
         content: "";
         position: absolute;
@@ -549,6 +556,44 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         width: 1px;
         height: var(--hall-stem-length);
         background: rgba(95, 232, 224, 0.6);
+      }
+      /* Stage 4 — the actual visual chrome (background/border/glow/
+         padding) lives here, on the inner reveal wrapper, so its opacity
+         and transform can animate as one unit without the stem (which
+         stays on the outer element, unanimated) moving with it. Default
+         state is the "revealed" end state — JS adds
+         --revealed only after one animation frame (see overlay.ts's own
+         note on why), and the *absence* of that class plus this
+         transition is what makes the reveal/hide animate instead of
+         snap; a browser with JS disabled would simply never run
+         overlay.ts at all, so this is not a progressive-enhancement
+         concern. */
+      .hall-focus-panel__inner {
+        padding: 0.7rem 0.8rem 0.6rem;
+        border-radius: 10px;
+        background: rgba(20, 16, 12, 0.88);
+        border: 1px solid rgba(95, 232, 224, 0.55);
+        box-shadow: 0 0 18px rgba(95, 232, 224, 0.3);
+        opacity: 0;
+        transform: translateY(-0.3rem) scaleY(0.94);
+        transform-origin: top center;
+        transition:
+          opacity var(--hall-focus-reveal-seconds, 0.2s) ease,
+          transform var(--hall-focus-reveal-seconds, 0.2s) ease;
+      }
+      .hall-focus-panel__inner--revealed {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+      }
+      /* prefers-reduced-motion: the brief requires an instant final
+         state with no animated frames at all — not just a shorter
+         transition. transition: none means even the very first "add the
+         --revealed class" frame renders already-final, with nothing in
+         between to animate. */
+      @media (prefers-reduced-motion: reduce) {
+        .hall-focus-panel__inner {
+          transition: none;
+        }
       }
       .hall-focus-panel__close {
         position: absolute;

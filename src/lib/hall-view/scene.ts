@@ -180,7 +180,7 @@ export function mount(container: HTMLElement, machines: Machine[]): HallViewHand
     ];
     typed.forEach(([machine, type], index) => {
       if (!machine) return;
-      const handle = buildMachineMesh(type, machine.status);
+      const handle = buildMachineMesh(machine.id, type, machine.status);
       const slot = room.machineSlots[index]!;
       handle.group.position.copy(slot).add(placement.position);
       scene.add(handle.group);

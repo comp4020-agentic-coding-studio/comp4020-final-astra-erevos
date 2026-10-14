@@ -7,6 +7,8 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import type { MachineStatus, MachineType } from "../types.ts";
 import { lookForStatus } from "./status-look.ts";
+import { phaseOffsetFor } from "./phase.ts";
+import { HOVER_SCAN_SECONDS, HUD_SCAN_SECONDS, easeInOutCubic, prefersReducedMotion } from "./motion.ts";
 
 export interface MachineMeshHandle {
   /** The group to add to the scene/room — position this, not its children. */
@@ -155,9 +157,22 @@ function getHazardTexture(): THREE.CanvasTexture {
   return hazardTexture;
 }
 
-export function buildMachineMesh(type: MachineType, initialStatus: MachineStatus): MachineMeshHandle {
+export function buildMachineMesh(
+  id: string,
+  type: MachineType,
+  initialStatus: MachineStatus,
+): MachineMeshHandle {
   const group = new THREE.Group();
   group.name = `machine-${type}`;
+
+  // Stage 4 — a deterministic per-machine phase offset (see phase.ts),
+  // added into every periodic animation argument below (drum rotation,
+  // LED blink/flicker, jitter) so two machines sharing the same status
+  // don't animate in exact lockstep, the way they did before this —
+  // confirmed visually to read as "two clones," not "two independent
+  // appliances." Purely a phase shift: amplitude/frequency/semantics are
+  // unchanged, so this has no bearing on what a machine's status means.
+  const phase = phaseOffsetFor(id);
 
   // Stage 2 — everything that should jitter while in-use lives inside
   // this inner group, not directly on `group` itself. `group`'s own
@@ -389,11 +404,22 @@ export function buildMachineMesh(type: MachineType, initialStatus: MachineStatus
   // One shared material instance across both — they always show/hide
   // together, so there's nothing per-instance to differentiate.
   const brackets: THREE.Line[] = [];
+  // Stage 4 — each bracket's own flip signs, kept so the scan-in reveal
+  // (see setVisualState/applyLookState below) can scale each bracket
+  // from 0 up to its own (flipX, flipY) rather than a plain (1,1):
+  // scaling an L-shaped line FROM its own corner (the shared origin both
+  // arms meet at, per bracketGeometry's own points) DOWN to 0 collapses
+  // it invisibly at that corner, so animating back up to 1 reads as the
+  // bracket being "drawn" outward from the corner — exactly the
+  // instrument-panel "scan" look asked for, with no shader or extra
+  // geometry needed.
+  const bracketSigns = new Map<THREE.Line, { x: number; y: number }>();
   for (const [x, y, flipX, flipY] of bracketCorners) {
     const bracket = new THREE.Line(bracketGeometry, bracketMaterial);
     brackets.push(bracket);
     bracket.position.set(x, y, 0.62);
-    bracket.scale.set(flipX, flipY, 1);
+    bracket.scale.set(0, 0, 1); // starting scale — see setVisualState's initial state below
+    bracketSigns.set(bracket, { x: flipX, y: flipY });
     shake.add(bracket);
   }
 
@@ -436,30 +462,138 @@ export function buildMachineMesh(type: MachineType, initialStatus: MachineStatus
   const HOVER_GLOW_OPACITY = 0.25;
   const FOCUS_GLOW_OPACITY = 0.45;
 
-  function refreshInteractionLook(): void {
-    const outlineOpacity = focused ? FOCUS_OUTLINE_OPACITY : hovered ? HOVER_OUTLINE_OPACITY : 0;
-    outlineMaterial.opacity = outlineOpacity;
-    const glowOpacity = focused ? FOCUS_GLOW_OPACITY : hovered ? HOVER_GLOW_OPACITY : 0;
-    groundGlowMaterial.opacity = glowOpacity;
-    bracketMaterial.opacity = focused ? 0.9 : 0;
+  // Stage 4 — "scan" reveal driving hover/focus visuals as an animated
+  // transition rather than an instant snap. Rather than tracking one
+  // "progress toward the new state" value (which would make a scan-OUT
+  // jump straight to its target of 0 instead of easing down from
+  // whatever level was visible), this interpolates directly between an
+  // explicit `scanFrom` level (the levels that were visible when the
+  // current transition started) and `scanTo` level (the new state's
+  // target levels) — correct for every transition (idle→hover,
+  // hover→focus, focus→idle, focus→hover) without special-casing any of
+  // them.
+  interface ScanLevels {
+    outline: number;
+    glow: number;
+    bracket: number;
+    bracketScale: number; // 0 or 1 — brackets only ever fully open or fully closed as a *target*, see bracketSigns for why mid-way values still make sense as an interpolated state
+  }
+  const SCAN_LEVELS: Record<"idle" | "hover" | "focus", ScanLevels> = {
+    idle: { outline: 0, glow: 0, bracket: 0, bracketScale: 0 },
+    hover: { outline: HOVER_OUTLINE_OPACITY, glow: HOVER_GLOW_OPACITY, bracket: 0, bracketScale: 0 },
+    focus: { outline: FOCUS_OUTLINE_OPACITY, glow: FOCUS_GLOW_OPACITY, bracket: 0.9, bracketScale: 1 },
+  };
+  let scanFrom: ScanLevels = SCAN_LEVELS.idle;
+  let scanTo: ScanLevels = SCAN_LEVELS.idle;
+  let scanSourceState: "idle" | "hover" | "focus" = "idle";
+  let scanTargetState: "idle" | "hover" | "focus" = "idle";
+  let scanProgress = 1; // 1 = fully arrived at scanTo already (the initial, unhovered/unfocused state)
+  let scanLastElapsed: number | null = null;
+
+  function lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * t;
+  }
+
+  // Stage 4 — applies an interpolated point between scanFrom and scanTo
+  // at the given eased `t` to every material/transform the scan drives.
+  // Brackets additionally scale with bracketScale (not just opacity) so
+  // they read as being "drawn" open from their shared corner
+  // (bracketSigns, set above) rather than just fading in place in their
+  // full open position — the literal "scan-drawn" instrument-panel look
+  // asked for, distinct from hover/glow's plain opacity fade.
+  function applyScanLook(t: number): void {
+    outlineMaterial.opacity = lerp(scanFrom.outline, scanTo.outline, t);
+    groundGlowMaterial.opacity = lerp(scanFrom.glow, scanTo.glow, t);
+    bracketMaterial.opacity = lerp(scanFrom.bracket, scanTo.bracket, t);
+    const bracketScale = lerp(scanFrom.bracketScale, scanTo.bracketScale, t);
+    for (const bracket of brackets) {
+      const signs = bracketSigns.get(bracket)!;
+      bracket.scale.set(signs.x * bracketScale, signs.y * bracketScale, 1);
+    }
+  }
+
+  // Stage 4 — starts (or redirects) the reveal toward `next`. Reduced
+  // motion snaps straight to the final state with no animated frames at
+  // all, per the brief's own requirement — the same "instant, never
+  // stuck mid-transition" treatment interaction.ts's own camera tween
+  // already gives its reduced-motion case, applied here to this
+  // separate, purely decorative reveal.
+  function startScan(next: "idle" | "hover" | "focus"): void {
+    if (prefersReducedMotion()) {
+      scanSourceState = next;
+      scanTargetState = next;
+      scanTo = SCAN_LEVELS[next];
+      scanFrom = scanTo;
+      scanProgress = 1;
+      applyScanLook(1);
+      return;
+    }
+    // Redirecting mid-animation (e.g. hover→focus, or focus→idle while
+    // still partway through an in-progress hover-in) restarts from
+    // wherever the CURRENT interpolated visual actually is, not from
+    // scratch — otherwise a quick hover-then-click would visibly snap
+    // backward for an instant before re-animating forward, which would
+    // read as a glitch rather than one continuous reveal.
+    const eased = easeInOutCubic(scanProgress);
+    scanFrom = {
+      outline: lerp(scanFrom.outline, scanTo.outline, eased),
+      glow: lerp(scanFrom.glow, scanTo.glow, eased),
+      bracket: lerp(scanFrom.bracket, scanTo.bracket, eased),
+      bracketScale: lerp(scanFrom.bracketScale, scanTo.bracketScale, eased),
+    };
+    scanSourceState = scanTargetState;
+    scanTargetState = next;
+    scanTo = SCAN_LEVELS[next];
+    scanProgress = 0;
+    scanLastElapsed = null;
+  }
+
+  // Stage 4 — advances the in-flight scan toward scanTo, called every
+  // frame from update() (see its own note on why this uses real
+  // elapsedSeconds rather than the phase-shifted `t`). A no-op once
+  // scanProgress reaches 1 — this isn't a continuous ambient animation,
+  // it's a one-shot reveal per state change, matching interaction.ts's
+  // own one-shot (not looping) camera tween.
+  function updateScan(elapsedSeconds: number): void {
+    if (scanProgress >= 1) {
+      scanLastElapsed = elapsedSeconds;
+      return;
+    }
+    // Any transition into or out of focus uses the slower HUD timing
+    // (coordinated with interaction.ts's 480ms camera tween); a plain
+    // idle<->hover transition (focus not involved on either side) uses
+    // the much quicker hover timing per the brief's "hover must feel
+    // fast, never laggy" requirement.
+    const duration =
+      scanSourceState === "focus" || scanTargetState === "focus" ? HUD_SCAN_SECONDS : HOVER_SCAN_SECONDS;
+    const delta = scanLastElapsed === null ? 0 : elapsedSeconds - scanLastElapsed;
+    scanLastElapsed = elapsedSeconds;
+    scanProgress = Math.min(scanProgress + delta / duration, 1);
+    applyScanLook(easeInOutCubic(scanProgress));
   }
 
   function setHovered(next: boolean): void {
     hovered = next;
-    refreshInteractionLook();
+    startScan(focused ? "focus" : hovered ? "hover" : "idle");
   }
 
   function setFocused(next: boolean): void {
     focused = next;
-    refreshInteractionLook();
+    startScan(focused ? "focus" : hovered ? "hover" : "idle");
   }
 
   function update(elapsedSeconds: number): void {
+    // Stage 4 — `t` is elapsedSeconds shifted by this machine's own
+    // deterministic phase (see phase.ts) and is what every periodic
+    // animation below reads instead of raw elapsedSeconds, so two
+    // in-use machines no longer spin/blink/jitter in exact lockstep.
+    const t = elapsedSeconds + phase;
+
     if (group.userData.spinning) {
       // One full rotation per ~2.4s — fast enough to read as "actively
       // washing," slow enough that the tumble detail doesn't blur into
       // a smear at a diorama's typical screen size.
-      drum.rotation.z = elapsedSeconds * 2.6;
+      drum.rotation.z = t * 2.6;
     }
 
     // Stage 2 — status LED: blink (in-use/out-of-order, a clean on/off
@@ -468,13 +602,13 @@ export function buildMachineMesh(type: MachineType, initialStatus: MachineStatus
     // than a regular pulse, so it reads as "uncertain," not "broken").
     let ledIntensity = currentLook.ledBaseIntensity;
     if (currentLook.ledBlinkHz > 0) {
-      const phase = Math.sin(elapsedSeconds * currentLook.ledBlinkHz * Math.PI * 2);
-      ledIntensity = currentLook.ledBaseIntensity * (phase > 0 ? 1 : 0.15);
+      const blinkPhase = Math.sin(t * currentLook.ledBlinkHz * Math.PI * 2);
+      ledIntensity = currentLook.ledBaseIntensity * (blinkPhase > 0 ? 1 : 0.15);
     } else if (currentLook.ledFlicker) {
       const flicker =
         0.5 +
-        0.3 * Math.sin(elapsedSeconds * 3.1) +
-        0.2 * Math.sin(elapsedSeconds * 7.7 + 1.3);
+        0.3 * Math.sin(t * 3.1) +
+        0.2 * Math.sin(t * 7.7 + 1.3);
       ledIntensity = currentLook.ledBaseIntensity * Math.max(0.1, flicker);
     }
     ledMaterial.emissiveIntensity = ledIntensity;
@@ -486,8 +620,8 @@ export function buildMachineMesh(type: MachineType, initialStatus: MachineStatus
     // machine reads as having real mechanical motion even where the
     // viewer isn't looking directly at the spinning drum.
     if (currentLook.jitter) {
-      shake.position.x = Math.sin(elapsedSeconds * 28) * 0.004;
-      shake.position.z = Math.cos(elapsedSeconds * 31) * 0.003;
+      shake.position.x = Math.sin(t * 28) * 0.004;
+      shake.position.z = Math.cos(t * 31) * 0.003;
     } else if (shake.position.x !== 0 || shake.position.z !== 0) {
       shake.position.set(0, 0, 0);
     }
@@ -497,11 +631,20 @@ export function buildMachineMesh(type: MachineType, initialStatus: MachineStatus
     // focused machine reads as "actively being inspected," not just
     // statically highlighted. Deliberately subtle (not setHovered/
     // setFocused's job to animate — those set the *base* level; this
-    // layers a small oscillation on top each frame).
-    if (focused) {
-      const pulse = 0.85 + 0.15 * Math.sin(elapsedSeconds * 2.2);
+    // layers a small oscillation on top each frame). Stage 4: only once
+    // the scan-in reveal (below) has finished — see scanProgress's own
+    // note on why this guard exists.
+    if (focused && scanProgress >= 1) {
+      const pulse = 0.85 + 0.15 * Math.sin(t * 2.2);
       bracketMaterial.opacity = 0.9 * pulse;
     }
+
+    // Stage 4 — advances the hover/focus "scan" reveal (see
+    // refreshInteractionLook's own note). Uses real elapsedSeconds, not
+    // the phase-shifted `t` above — this is a one-shot UI reveal tied to
+    // a user action, not an ambient per-machine animation, so it must
+    // not be offset by this machine's own phase.
+    updateScan(elapsedSeconds);
   }
 
   function getHudAnchorWorld(target: THREE.Vector3): THREE.Vector3 {
