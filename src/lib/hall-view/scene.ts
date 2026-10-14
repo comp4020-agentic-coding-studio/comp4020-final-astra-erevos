@@ -20,9 +20,21 @@
 // — no second EventSource, no second state model, no window-global
 // bridge: just one more function imported from the one scene module,
 // same as mount() already was.
+//
+// Stage 3 — all five real locations (A/B, C, E, F, G; see
+// hall-layout.ts), each its own buildRoom() instance placed at a fixed
+// world offset. Every per-machine mechanism below (hover, focus, HUD,
+// hitbox, animation, live-state sync) is the exact same code path the
+// single A/B room already used — this stage only changes *how many*
+// rooms/machines are built and placed, never how any one of them
+// behaves. The overview camera fit already took "the room" as a list of
+// objects (boundsCorners([room.group])), so fitting all five rooms'
+// combined bounds instead needed no change to camera-fit.ts itself.
 import * as THREE from "three";
-import type { Machine, MachineType } from "../types.ts";
+import type { Location, Machine, MachineType } from "../types.ts";
 import { buildRoom } from "./room.ts";
+import { ROOM_PLACEMENTS } from "./hall-layout.ts";
+import { buildRoomLabel } from "./room-label.ts";
 import { buildMachineMesh, type MachineMeshHandle } from "./machine-mesh.ts";
 import { createInteraction, type InteractionTarget } from "./interaction.ts";
 import { createOverlay } from "./overlay.ts";
@@ -120,37 +132,93 @@ export function mount(container: HTMLElement, machines: Machine[]): HallViewHand
   const hemiLight = new THREE.HemisphereLight(0xfdf6e6, 0x8a6a4a, 0.6);
   scene.add(hemiLight);
 
-  // Room + two machines, positioned at the room's defined slots.
-  const room = buildRoom();
-  scene.add(room.group);
-
+  // Stage 3 — one buildRoom() per real location, each placed at its
+  // hall-layout.ts offset, each with its own washer+dryer pair at that
+  // room's own local machineSlots (translated into world space the same
+  // way the single A/B room always did: slot is in the room's local
+  // space, machine groups are added directly to the scene, not nested
+  // under room.group, so each machine's world position is simply the
+  // room's offset plus its local slot).
+  //
+  // Stage 3 fix (focus occlusion) — roomsByLocation and
+  // machineGroupsByLocation let setOnlyLocationVisible() below toggle an
+  // entire room (its walls/floor/props AND its machines) on or off by
+  // location, so a focused back-row room is never hidden behind a
+  // front-row room's walls, and the other rooms' now-invisible meshes
+  // never intercept a click either (see interaction.ts's targetAt()
+  // filtering on mesh.group.visible).
+  const roomGroups: THREE.Object3D[] = [];
+  const roomsByLocation = new Map<Location, THREE.Object3D>();
+  const machineGroupsByLocation = new Map<Location, THREE.Object3D[]>();
   const machineHandles = new Map<string, MachineMeshHandle>();
   const interactionTargets: InteractionTarget[] = [];
-  const washer = machines.find((m) => m.type === "washer");
-  const dryer = machines.find((m) => m.type === "dryer");
-  const typed: Array<[Machine | undefined, MachineType]> = [
-    [washer, "washer"],
-    [dryer, "dryer"],
-  ];
-  typed.forEach(([machine, type], index) => {
-    if (!machine) return;
-    const handle = buildMachineMesh(type, machine.status);
-    const slot = room.machineSlots[index]!;
-    handle.group.position.copy(slot);
-    scene.add(handle.group);
-    machineHandles.set(machine.id, handle);
-    interactionTargets.push({ id: machine.id, mesh: handle, machine });
-  });
+  const machinesByLocation = new Map<string, Machine[]>();
+  for (const machine of machines) {
+    const list = machinesByLocation.get(machine.location) ?? [];
+    list.push(machine);
+    machinesByLocation.set(machine.location, list);
+  }
 
-  // Stage 2.2 — the overview fit, computed from the room's real bounds
-  // (room.group alone: machines are separate scene children, never
-  // nested inside it, so this never accidentally includes any
-  // machine's interaction-overlay meshes). Recomputed identically in
+  for (const placement of ROOM_PLACEMENTS) {
+    const room = buildRoom(placement.mirror);
+    room.group.position.copy(placement.position);
+    // Stage 3 — the large block letter mounted on this room's back wall
+    // (see room-label.ts). A child of room.group, not a separate scene
+    // object, so it inherits the room's position/visibility for free.
+    room.group.add(buildRoomLabel(placement.location));
+    scene.add(room.group);
+    roomGroups.push(room.group);
+    roomsByLocation.set(placement.location, room.group);
+    machineGroupsByLocation.set(placement.location, []);
+
+    const roomMachines = machinesByLocation.get(placement.location) ?? [];
+    const washer = roomMachines.find((m) => m.type === "washer");
+    const dryer = roomMachines.find((m) => m.type === "dryer");
+    const typed: Array<[Machine | undefined, MachineType]> = [
+      [washer, "washer"],
+      [dryer, "dryer"],
+    ];
+    typed.forEach(([machine, type], index) => {
+      if (!machine) return;
+      const handle = buildMachineMesh(type, machine.status);
+      const slot = room.machineSlots[index]!;
+      handle.group.position.copy(slot).add(placement.position);
+      scene.add(handle.group);
+      machineHandles.set(machine.id, handle);
+      interactionTargets.push({ id: machine.id, mesh: handle, machine });
+      machineGroupsByLocation.get(placement.location)!.push(handle.group);
+    });
+  }
+
+  // Stage 3 fix — hides every room except `onlyLocation` (and that
+  // room's own machines are the only ones left clickable/visible too,
+  // via interaction.ts's targetAt() filter on mesh.group.visible).
+  // `null` means "show all five" (the overview state). This is the
+  // direct, no-partial-occlusion approach: rather than keep tuning the
+  // staggered layout's Z/Y gaps to try to make every room's focus shot
+  // avoid every other room from every possible camera angle, a focused
+  // room's neighbors are simply not drawn at all for as long as that
+  // focus lasts — overview restores all five immediately on return.
+  function setOnlyLocationVisible(onlyLocation: Location | null): void {
+    for (const [location, roomGroup] of roomsByLocation) {
+      const visible = onlyLocation === null || location === onlyLocation;
+      roomGroup.visible = visible;
+      for (const machineGroup of machineGroupsByLocation.get(location) ?? []) {
+        machineGroup.visible = visible;
+      }
+    }
+  }
+
+  // Stage 2.2 (Stage 3: now fit to all five rooms' combined bounds, not
+  // just one) — the overview fit, computed from the rooms' real bounds
+  // (room groups only: machines are separate scene children, never
+  // nested inside any room.group, so this never accidentally includes
+  // any machine's interaction-overlay meshes). Recomputed identically in
   // handleResize() below when the aspect ratio changes.
   const overviewLookAt = new THREE.Vector3();
   let overviewZoom = 1;
   function computeOverviewFit(): void {
-    const corners = boundsCorners([room.group]);
+    const corners = boundsCorners(roomGroups);
     const fit = fitBoundsToRect(
       corners,
       ISO_VIEW_DIRECTION,
@@ -210,6 +278,12 @@ export function mount(container: HTMLElement, machines: Machine[]): HallViewHand
       onFocusChange(target) {
         focusedTarget = target;
         overlay.showFocus(target?.machine ?? null);
+        // Stage 3 fix — only the focused machine's own room stays
+        // visible while focused; every other room (and its machines)
+        // is hidden, so a front-row room can never occlude a back-row
+        // room's focus shot (or vice versa). Returning to overview
+        // (target === null) restores all five.
+        setOnlyLocationVisible(target ? target.machine.location : null);
         // Positioned immediately, not left to wait for the next
         // animate() frame — avoids a one-frame flash of the panel
         // appearing at no particular position before its first update.

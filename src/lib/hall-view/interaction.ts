@@ -252,14 +252,23 @@ export function createInteraction(
   // the segment is — large enough, at this room's ~1.7-unit machine
   // spacing, for one machine's always-present bracket lines to cover a
   // neighboring machine's empty space.
+  //
+  // Stage 3 fix — filters out any target whose mesh.group is currently
+  // hidden (scene.ts sets this false for every room/machine outside the
+  // focused one, so the other four rooms don't occlude or steal clicks
+  // from the one being inspected). This reuses the exact .visible flag
+  // scene.ts already toggles for rendering — the same real bug noted
+  // above (Three.js's raycaster ignores .visible) is exactly why this
+  // filter has to be explicit here rather than assumed for free.
   function targetAt(ndcX: number, ndcY: number): InteractionTarget | null {
     pointerNdc.set(ndcX, ndcY);
     raycaster.setFromCamera(pointerNdc, camera);
-    const hitboxes = targets.map((t) => t.mesh.hitbox);
+    const candidates = targets.filter((t) => t.mesh.group.visible);
+    const hitboxes = candidates.map((t) => t.mesh.hitbox);
     const hits = raycaster.intersectObjects(hitboxes, false);
     if (hits.length === 0) return null;
     const hitObject = hits[0]!.object;
-    return targets.find((t) => t.mesh.hitbox === hitObject) ?? null;
+    return candidates.find((t) => t.mesh.hitbox === hitObject) ?? null;
   }
 
   function ndcFromEvent(event: PointerEvent): { x: number; y: number } {

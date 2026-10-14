@@ -39,11 +39,13 @@ const byLocation = new Map(
   LOCATIONS.map((loc) => [loc, machines.filter((m) => m.location === loc)]),
 );
 
-// Stage 1 of the Live Hall View (see PROCESS.md): the A/B room only,
-// initialized from this page load's real machine state. Deliberately no
-// SSE wiring yet — that's Stage 2. Passed as serialized data the same
-// way STATUS_META already is, read once by the client module below.
-const hallViewMachines = byLocation.get("A/B")!;
+// Stage 1 of the Live Hall View (see PROCESS.md): initialized from this
+// page load's real machine state. Deliberately no SSE wiring yet at
+// Stage 1 — that was Stage 2. Stage 3: all five real locations, not just
+// A/B — scene.ts places each at its own hall-layout.ts offset. Passed as
+// serialized data the same way STATUS_META already is, read once by the
+// client module below.
+const hallViewMachines = machines;
 
 // Status semantics, not just decoration: available/out-of-order carry real
 // severity (good/critical, from the fixed status palette). in-use is a
@@ -493,6 +495,13 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         font-size: 0.78rem;
         line-height: 1.4;
       }
+      .hall-hover-card__room {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #9fd8d3;
+      }
       .hall-hover-card__name {
         font-weight: 700;
         letter-spacing: 0.02em;
@@ -562,6 +571,13 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         padding-bottom: 0.4rem;
         border-bottom: 1px solid rgba(95, 232, 224, 0.3);
       }
+      .hall-focus-panel__room {
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #9fd8d3;
+      }
       .hall-focus-panel__name {
         font-size: 0.85rem;
         font-weight: 700;
@@ -602,19 +618,21 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         <p class="identity">You're reporting as <strong>{pseudonym}</strong></p>
       </header>
 
-      {/* Live Hall View — Stage 1: A/B room only, a visual layer above
-          the dashboard, never a replacement for it. aria-hidden because
-          every fact it shows is already stated as accessible text below;
-          a screen-reader user loses nothing by this section being
-          skipped entirely. No SSE wiring yet (Stage 2) — initialized
-          once from this page load's real state via data-machines. */}
+      {/* Live Hall View — Stage 3: all five real laundry rooms, a visual
+          layer above the dashboard, never a replacement for it.
+          aria-hidden because every fact it shows is already stated as
+          accessible text below; a screen-reader user loses nothing by
+          this section being skipped entirely. Initialized once from
+          this page load's real state via data-machines, then kept live
+          by the dashboard script's existing applyMachineUpdate() below
+          (see scene.ts's applyMachineToScene note). */}
       <section
         class="hall-view"
         aria-hidden="true"
         data-machines={JSON.stringify(hallViewMachines)}
       >
         <div class="hall-view-canvas" id="hall-view-canvas"></div>
-        <p class="hall-view-caption">A/B laundry room — live, Stage 1 preview</p>
+        <p class="hall-view-caption">Toad Hall — live laundry miniature</p>
       </section>
 
       <section class="summary" aria-label="Laundry summary">

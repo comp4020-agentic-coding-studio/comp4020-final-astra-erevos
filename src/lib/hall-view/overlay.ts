@@ -21,6 +21,21 @@ function machineName(machine: Machine): string {
   return machine.type === "washer" ? "Washer" : "Dryer";
 }
 
+// Stage 3 fix — the hover card previously showed only "Washer"/"Dryer",
+// with nothing saying which of the five rooms it belonged to. Now a
+// five-room scene, two machines alone no longer identify which one a
+// resident is looking at. Matches the dashboard's own existing "Block
+// {location}" wording (src/pages/index.astro's zone-label) rather than
+// inventing new copy for the same fact.
+function roomLabel(machine: Machine): string {
+  return `Block ${machine.location}`;
+}
+
+export interface RoomLabelSpec {
+  id: string;
+  text: string;
+}
+
 export interface OverlayHandle {
   /** Shows the small hover card near the given screen-space point, or hides it if machine is null. */
   showHover(machine: Machine | null, screenX: number, screenY: number): void;
@@ -62,6 +77,7 @@ export function createOverlay(container: HTMLElement, onCloseFocus: () => void):
     }
     const remaining = machine.status === "in-use" ? remainingLabel(machine.expectedEndAt) : null;
     hoverCard.innerHTML = `
+      <div class="hall-hover-card__room">${roomLabel(machine)}</div>
       <div class="hall-hover-card__name">${machineName(machine)}</div>
       <div class="hall-hover-card__status hall-status--${machine.status}">${STATUS_LABELS[machine.status]}</div>
       <div class="hall-hover-card__meta">${confirmedLabel(machine.confirmedAt)}</div>
@@ -152,6 +168,7 @@ export function createOverlay(container: HTMLElement, onCloseFocus: () => void):
     focusPanel.innerHTML = `
       <button type="button" class="hall-focus-panel__close" aria-label="Close detail view">×</button>
       <div class="hall-focus-panel__header">
+        <span class="hall-focus-panel__room">${roomLabel(machine)}</span>
         <span class="hall-focus-panel__name">${machineName(machine)}</span>
         <span class="hall-focus-panel__status hall-status--${machine.status}">${STATUS_LABELS[machine.status]}</span>
       </div>

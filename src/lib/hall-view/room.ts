@@ -22,9 +22,17 @@ const floorGeometry = new THREE.PlaneGeometry(4.6, 3.2);
 const backWallGeometry = new THREE.PlaneGeometry(4.6, 2.2);
 const sideWallGeometry = new THREE.PlaneGeometry(3.2, 2.2);
 
-export function buildRoom(): RoomHandle {
+/**
+ * @param mirror Stage 3 — flips the three ambient props (clock, basket,
+ * plant) left-to-right. Purely cosmetic: floor/walls/trim/machineSlots
+ * are identical either way, so a room built with mirror=true is still
+ * the same template, not a redesign — this just keeps five rooms in one
+ * scene from reading as the exact same prop photo copy-pasted five times.
+ */
+export function buildRoom(mirror: boolean = false): RoomHandle {
   const group = new THREE.Group();
   group.name = "room";
+  const sign = mirror ? -1 : 1;
 
   // Floor: warm wood-plank color from the existing CSS palette
   // (--surface-alt), a faint vertex-colored plank pattern rather than a
@@ -80,17 +88,17 @@ export function buildRoom(): RoomHandle {
   // part of this app's whole concept.
   const clockFaceMaterial = new THREE.MeshStandardMaterial({ color: 0xfffbf1, roughness: 0.4 });
   const clockFace = new THREE.Mesh(new THREE.CircleGeometry(0.18, 20), clockFaceMaterial);
-  clockFace.position.set(-1.6, 1.7, -1.57);
+  clockFace.position.set(-1.6 * sign, 1.7, -1.57);
   group.add(clockFace);
   const clockRimMaterial = new THREE.MeshStandardMaterial({ color: 0x2c2115, roughness: 0.5 });
   const clockRim = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.02, 8, 20), clockRimMaterial);
-  clockRim.position.set(-1.6, 1.7, -1.57);
+  clockRim.position.set(-1.6 * sign, 1.7, -1.57);
   group.add(clockRim);
   const clockHand = new THREE.Mesh(
     new THREE.BoxGeometry(0.02, 0.12, 0.01),
     new THREE.MeshStandardMaterial({ color: 0x2c2115 }),
   );
-  clockHand.position.set(-1.6, 1.74, -1.56);
+  clockHand.position.set(-1.6 * sign, 1.74, -1.56);
   clockHand.rotation.z = Math.PI / 5;
   group.add(clockHand);
 
@@ -98,13 +106,13 @@ export function buildRoom(): RoomHandle {
   // low-poly, non-interactive, pure "lived-in" signal.
   const basketMaterial = new THREE.MeshStandardMaterial({ color: 0xc1652f, roughness: 0.7 });
   const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.34, 10), basketMaterial);
-  basket.position.set(1.7, 0.17, -1.2);
+  basket.position.set(1.7 * sign, 0.17, -1.2);
   basket.castShadow = true;
   basket.receiveShadow = true;
   group.add(basket);
   const linenMaterial = new THREE.MeshStandardMaterial({ color: 0xf6ecd9, roughness: 0.9 });
   const linen = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), linenMaterial);
-  linen.position.set(1.7, 0.36, -1.2);
+  linen.position.set(1.7 * sign, 0.36, -1.2);
   linen.scale.set(1, 0.6, 1);
   linen.castShadow = true;
   group.add(linen);
@@ -113,13 +121,17 @@ export function buildRoom(): RoomHandle {
   // --accent already in the app's palette.
   const potMaterial = new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.8 });
   const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.09, 0.18, 10), potMaterial);
-  pot.position.set(-1.9, 0.09, 1.3);
+  pot.position.set(-1.9 * sign, 0.09, 1.3);
   pot.castShadow = true;
   group.add(pot);
   const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x3f6b3f, roughness: 0.6 });
   for (let i = 0; i < 3; i++) {
     const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.32, 6), leafMaterial);
-    leaf.position.set(-1.9 + Math.cos((i * Math.PI * 2) / 3) * 0.05, 0.36, 1.3 + Math.sin((i * Math.PI * 2) / 3) * 0.05);
+    leaf.position.set(
+      -1.9 * sign + Math.cos((i * Math.PI * 2) / 3) * 0.05,
+      0.36,
+      1.3 + Math.sin((i * Math.PI * 2) / 3) * 0.05,
+    );
     leaf.rotation.z = (Math.random() - 0.5) * 0.3;
     leaf.castShadow = true;
     group.add(leaf);
