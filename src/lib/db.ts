@@ -36,7 +36,13 @@ interface MachineRow {
 const dbPath = process.env.DB_PATH ?? "./data/toadlive.db";
 mkdirSync(dirname(dbPath), { recursive: true });
 
-const db = new DatabaseSync(dbPath);
+// Exported so src/lib/sessions.ts can share this one connection rather
+// than opening a second one against the same file — node:sqlite is
+// synchronous and single-process here (same reasoning as realtime.ts's
+// in-process subscriber list), so one shared handle is correct, not a
+// shortcut. sessions.ts needs nothing else from this module, so this
+// stays a one-way dependency (sessions.ts -> db.ts), no cycle.
+export const db = new DatabaseSync(dbPath);
 db.exec(readFileSync(join(process.cwd(), "db/schema.sql"), "utf8"));
 migrateVersionColumn();
 seedIfEmpty();
@@ -147,6 +153,11 @@ function decayed(row: MachineRow): MachineRow {
   return updated;
 }
 
+// row.reporter_id (internal — an internal actor id as of Crit 10, see
+// notes/adr/0002-identity-and-permissions.md) is deliberately NOT mapped
+// onto the public Machine shape here. It stays in MachineRow/SQLite for
+// attribution, but is never returned from an API response or broadcast
+// over SSE.
 function toMachine(row: MachineRow): Machine {
   return {
     id: row.id,
@@ -156,7 +167,6 @@ function toMachine(row: MachineRow): Machine {
     startedAt: row.started_at,
     expectedEndAt: row.expected_end_at,
     confirmedAt: row.confirmed_at,
-    reporterId: row.reporter_id,
     version: row.version,
   };
 }

@@ -1,10 +1,16 @@
 import { expect, inject, it } from "vitest";
+import { sessionCookie } from "./test-session.ts";
 
 // Crit 8's one proof: a stranger's change to a machine's status is still
 // there when they, or anyone else, come back. Checked as two independent
 // HTTP requests against the running app — no shared client state between
 // them — which is the same shape a real return visit takes.
+//
+// Every PATCH here carries a valid Crit 10 session cookie (see
+// spec/test-session.ts), so these tests keep checking persistence, not
+// authentication.
 const baseUrl = inject("baseUrl");
+const cookie = await sessionCookie(baseUrl);
 
 it("a machine status update persists across an independent later request", async () => {
   const machineId = "ab-washer";
@@ -14,7 +20,7 @@ it("a machine status update persists across an independent later request", async
 
   const patch = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({
       status: "in-use",
       startedAt: Date.now(),
@@ -47,7 +53,7 @@ it("rejects a timestamp too large to store safely, rather than corrupting the ro
 
   const patch = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ status: "in-use", startedAt: 1_790_783_554_649_972_224, ifVersion: version }),
   });
   expect(patch.status).toBe(400);

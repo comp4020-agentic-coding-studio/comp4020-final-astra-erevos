@@ -17,6 +17,14 @@ export const VALID_STATUSES: readonly MachineStatus[] = [
   "unknown",
 ];
 
+// reporterId is deliberately NOT part of this public shape. As of Crit 10
+// it's an internal actor id (sessions.id) — see
+// notes/adr/0002-identity-and-permissions.md — and must never appear in a
+// GET/PATCH response or an SSE event. Nothing in the client reads it
+// today, so dropping it from every response is a pure reduction in
+// exposed surface, not a UI change. If a later crit wants to show "last
+// reported by <pseudonym>", that's a new field carrying the pseudonym,
+// not this one reinstated.
 export interface Machine {
   id: string;
   location: Location;
@@ -25,7 +33,6 @@ export interface Machine {
   startedAt: number | null;
   expectedEndAt: number | null;
   confirmedAt: number | null;
-  reporterId: string | null;
   // Server-owned, starts at 1. Every persisted mutation — a resident's
   // report or a lazy decay transition alike — increments it atomically as
   // part of that same write. A client only ever echoes a version it saw;

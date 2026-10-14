@@ -1,4 +1,5 @@
 import { expect, inject, it } from "vitest";
+import { sessionCookie } from "./test-session.ts";
 
 // Crit 9's concurrency decision: a resident's report must match the
 // version their own view last saw. A client whose view is behind — because
@@ -6,11 +7,17 @@ import { expect, inject, it } from "vitest";
 // moved the row — gets 409 and the actual canonical state back, never a
 // silent overwrite. See notes/adr/0001-realtime-and-concurrent-updates.md.
 //
+// Every PATCH here carries a valid Crit 10 session cookie (see
+// spec/test-session.ts) so these tests keep checking concurrency, not
+// authentication — spec/identity.test.ts covers the no-session case
+// directly.
+//
 // Machine ids here are not shared with any other spec file: Vitest runs
 // test files in parallel, and a version-matched write means two files
 // racing on the same machine could make an otherwise-correct PATCH 409 as
 // a false failure rather than a real bug.
 const baseUrl = inject("baseUrl");
+const cookie = await sessionCookie(baseUrl);
 
 async function getMachine(machineId: string): Promise<{ status: string; version: number }> {
   const res = await fetch(new URL(`/api/machines/${machineId}`, baseUrl));
@@ -20,7 +27,7 @@ async function getMachine(machineId: string): Promise<{ status: string; version:
 it("a PATCH without ifVersion is rejected", async () => {
   const res = await fetch(new URL("/api/machines/c-dryer", baseUrl), {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ status: "available" }),
   });
   expect(res.status).toBe(400);
@@ -32,7 +39,7 @@ it("a report carrying the current version succeeds and advances it", async () =>
 
   const patch = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ status: "available", ifVersion: before.version }),
   });
   expect(patch.status).toBe(200);
@@ -48,7 +55,7 @@ it("a stale ifVersion is rejected with 409, and the newer state stays untouched"
   // succeeds and moves the machine on.
   const first = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ status: "out-of-order", ifVersion: stale.version }),
   });
   expect(first.status).toBe(200);
@@ -59,7 +66,7 @@ it("a stale ifVersion is rejected with 409, and the newer state stays untouched"
   // silently overwrite what the first report just set.
   const second = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ status: "available", ifVersion: stale.version }),
   });
   expect(second.status).toBe(409);

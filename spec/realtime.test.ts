@@ -1,4 +1,5 @@
 import { expect, inject, it } from "vitest";
+import { sessionCookie } from "./test-session.ts";
 
 // Crit 9's core promise: a change one resident makes — directly, or via a
 // server-driven decay — reaches every other open session within about a
@@ -9,6 +10,10 @@ import { expect, inject, it } from "vitest";
 // mutation) rather than a particular client. See
 // notes/adr/0001-realtime-and-concurrent-updates.md.
 //
+// Every PATCH here carries a valid Crit 10 session cookie (see
+// spec/test-session.ts), so these tests keep checking realtime delivery,
+// not authentication.
+//
 // Machine ids here are not shared with any other spec file's *successful*
 // mutations: Vitest runs test files in parallel, and a version-matched
 // write means two files racing on the same machine could make an
@@ -16,6 +21,7 @@ import { expect, inject, it } from "vitest";
 // spec/concurrency.test.ts, but only for a request that 400s before ever
 // reaching the database — no mutation, no race.)
 const baseUrl = inject("baseUrl");
+const cookie = await sessionCookie(baseUrl);
 
 // A small CI margin around the product's "about a second" target — a
 // loaded test runner shouldn't flake a passing implementation.
@@ -73,7 +79,7 @@ it("a resident report reaches another open SSE session without reload", async ()
   const ifVersion = await currentVersion(machineId);
   const patch = fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ status: "out-of-order", ifVersion }),
   });
 
@@ -95,7 +101,7 @@ it("a read-triggered decay reaches another open SSE session as 'unknown'", async
   const ifVersion = await currentVersion(machineId);
   const patch = await fetch(new URL(`/api/machines/${machineId}`, baseUrl), {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({
       status: "in-use",
       startedAt: Date.now(),

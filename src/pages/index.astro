@@ -1,5 +1,32 @@
 ---
 import { LOCATIONS, listMachines, type Machine, type MachineStatus, type MachineType } from "../lib/db.ts";
+import { COOKIE_NAME, COOKIE_MAX_AGE_SECONDS, createSession, resolveSession } from "../lib/sessions.ts";
+
+// Crit 10: resolve this browser's session from its cookie, or create a
+// new one on first visit — page loads are the one place creation
+// happens; API routes only ever resolve (see
+// src/pages/api/machines/[id].ts) and reject rather than mint a new
+// identity for a write they're about to refuse anyway. See
+// notes/adr/0002-identity-and-permissions.md.
+let session = resolveSession(Astro.cookies.get(COOKIE_NAME)?.value);
+if (!session) {
+  const created = createSession();
+  session = created.session;
+  // Secure only over HTTPS: Fly's proxy terminates TLS in front of the
+  // app (fly.toml), so a production request always qualifies; a local
+  // `pnpm dev`/`pnpm check` run against http://localhost:8080 must still
+  // get a cookie the browser (or a test's fetch) sends back, which
+  // `Secure` over plain HTTP would prevent.
+  const isHttps = Astro.url.protocol === "https:";
+  Astro.cookies.set(COOKIE_NAME, created.token, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: COOKIE_MAX_AGE_SECONDS,
+    secure: isHttps,
+  });
+}
+const pseudonym = session.pseudonym;
 
 const machines = listMachines();
 const byLocation = new Map(
@@ -118,6 +145,14 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         color: var(--accent);
         text-decoration: underline;
         text-decoration-color: var(--border);
+      }
+      /* Unobtrusive: present so a resident can tell which browser
+         identity they have, not a profile/account affordance to draw
+         attention to. */
+      .identity {
+        margin-top: 0.6rem;
+        font-size: 0.78rem;
+        color: var(--ink-muted);
       }
 
       /* --- summary stat row: stays a compact, centred band even though
@@ -391,6 +426,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           Laundry across Toad Hall's five blocks — reported by residents, not
           sensors. See <a href="/readme/">what "good" means here</a>.
         </p>
+        <p class="identity">You're reporting as <strong>{pseudonym}</strong></p>
       </header>
 
       <section class="summary" aria-label="Laundry summary">
@@ -504,23 +540,6 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         version: number;
       }
 
-      // A lightweight, anonymous session id — enough to attribute a report
-      // to *something* without a login flow. See PROCESS.md: this is
-      // deliberately shaped to grow into verified resident accounts later,
-      // not a finished identity system now.
-      function sessionId(): string | null {
-        try {
-          let id = localStorage.getItem("toadlive-session");
-          if (!id) {
-            id = crypto.randomUUID();
-            localStorage.setItem("toadlive-session", id);
-          }
-          return id;
-        } catch {
-          return null;
-        }
-      }
-
       // Mirrors confirmedLabel()/remainingLabel() in the frontmatter above.
       // Both need the *client's* current clock, so they can't be shared
       // directly across the server/client boundary — kept tiny and
@@ -628,13 +647,17 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           const minutesRaw = (form.elements.namedItem("minutes") as HTMLInputElement).value;
           const minutes = minutesRaw === "" ? null : Number(minutesRaw);
 
+          // No reporterId here — the actor is resolved server-side from
+          // this browser's session cookie (see
+          // notes/adr/0002-identity-and-permissions.md); the cookie is
+          // sent automatically with same-origin fetch, nothing to attach
+          // client-side.
           const res = await fetch(`/api/machines/${id}`, {
             method: "PATCH",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               status,
               ifVersion,
-              reporterId: sessionId(),
               expectedEndAt:
                 status === "in-use" && minutes !== null ? Date.now() + minutes * 60_000 : undefined,
             }),
