@@ -1,0 +1,254 @@
+// Stage 1: the A/B room, fixed camera, real-time initial state.
+// Stage 2: hover/click interaction on those same two machines — a cyan
+// selection outline + ground glow + mini info card on hover, a camera
+// dolly-in + fuller HUD detail panel on click. Still no SSE wiring (a
+// later stage) — index.astro's existing applyMachineUpdate() does not
+// call into this module yet.
+//
+// Stage 2.2 — both the overview camera and the per-machine focus camera
+// (interaction.ts) are now computed by camera-fit.ts's fitBoundsToRect()
+// from the room's real world-space bounds, not a hand-tuned
+// frustumHalfHeight constant verified by screenshotting one viewport.
+import * as THREE from "three";
+import type { Machine, MachineType } from "../types.ts";
+import { buildRoom } from "./room.ts";
+import { buildMachineMesh, type MachineMeshHandle } from "./machine-mesh.ts";
+import { createInteraction, type InteractionTarget } from "./interaction.ts";
+import { createOverlay } from "./overlay.ts";
+import { boundsCorners, fitBoundsToRect } from "./camera-fit.ts";
+
+export interface HallViewHandle {
+  /** Stops the render loop and frees GPU resources — call on page teardown if ever needed. */
+  dispose(): void;
+}
+
+// True isometric angle (not an arbitrary tilt): atan(1/sqrt(2)) elevation.
+const ISO_ELEVATION = Math.atan(1 / Math.sqrt(2));
+const ISO_AZIMUTH = Math.PI / 4;
+const ISO_VIEW_DIRECTION = new THREE.Vector3(
+  Math.cos(ISO_ELEVATION) * Math.cos(ISO_AZIMUTH),
+  Math.sin(ISO_ELEVATION),
+  Math.cos(ISO_ELEVATION) * Math.sin(ISO_AZIMUTH),
+).normalize();
+const CAMERA_DISTANCE = 10; // arbitrary — orthographic apparent size depends only on frustumHalfHeight/zoom, not distance
+
+// Stage 2.2 — the overview's target NDC rectangle: a small, even margin
+// on every side (symmetric, unlike the focus shot's reserved-top
+// rectangle) so the room — floor, both walls, every prop, both
+// machines — fills the frame as fully as possible while leaving a
+// uniform breathing margin. 0.9 means the room's tightest-fitting axis
+// reaches 90% of the way to the frame edge; confirmed by the same
+// project-the-real-corners-back verification camera-fit.ts's own
+// correctness was checked with, not chosen by eye.
+const OVERVIEW_FILL = 0.9;
+
+export function mount(container: HTMLElement, machines: Machine[]): HallViewHandle {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf6efe1); // --page
+
+  // Fixed orthographic camera. No OrbitControls, no PointerLockControls,
+  // nothing attached that could pan/zoom/rotate — there is deliberately
+  // no code path for camera movement to grow into. This is the single
+  // most important decision keeping this a diorama, not a navigable
+  // world: see the Stage 1 design discussion. frustumHalfHeight/position
+  // are placeholders here — set for real a few lines down, once the
+  // room exists and its bounds can be measured.
+  let aspect = container.clientWidth / Math.max(container.clientHeight, 1);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
+
+  // Lighting: one warm directional light (the shadow-casting key light,
+  // angled to roughly match the camera's isometric direction so faces
+  // read with real shading variation) plus one soft hemisphere light so
+  // shadow-side faces aren't pure black. See the Stage 1 lighting notes.
+  const keyLight = new THREE.DirectionalLight(0xfff4e0, 2.2);
+  keyLight.position.set(4, 6, 3);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.camera.left = -4;
+  keyLight.shadow.camera.right = 4;
+  keyLight.shadow.camera.top = 4;
+  keyLight.shadow.camera.bottom = -4;
+  keyLight.shadow.camera.near = 1;
+  keyLight.shadow.camera.far = 15;
+  keyLight.shadow.bias = -0.002;
+  scene.add(keyLight);
+
+  const hemiLight = new THREE.HemisphereLight(0xfdf6e6, 0x8a6a4a, 0.6);
+  scene.add(hemiLight);
+
+  // Room + two machines, positioned at the room's defined slots.
+  const room = buildRoom();
+  scene.add(room.group);
+
+  const machineHandles = new Map<string, MachineMeshHandle>();
+  const interactionTargets: InteractionTarget[] = [];
+  const washer = machines.find((m) => m.type === "washer");
+  const dryer = machines.find((m) => m.type === "dryer");
+  const typed: Array<[Machine | undefined, MachineType]> = [
+    [washer, "washer"],
+    [dryer, "dryer"],
+  ];
+  typed.forEach(([machine, type], index) => {
+    if (!machine) return;
+    const handle = buildMachineMesh(type, machine.status);
+    const slot = room.machineSlots[index]!;
+    handle.group.position.copy(slot);
+    scene.add(handle.group);
+    machineHandles.set(machine.id, handle);
+    interactionTargets.push({ id: machine.id, mesh: handle, machine });
+  });
+
+  // Stage 2.2 — the overview fit, computed from the room's real bounds
+  // (room.group alone: machines are separate scene children, never
+  // nested inside it, so this never accidentally includes any
+  // machine's interaction-overlay meshes). Recomputed identically in
+  // handleResize() below when the aspect ratio changes.
+  const overviewLookAt = new THREE.Vector3();
+  let overviewZoom = 1;
+  function computeOverviewFit(): void {
+    const corners = boundsCorners([room.group]);
+    const fit = fitBoundsToRect(
+      corners,
+      ISO_VIEW_DIRECTION,
+      new THREE.Vector3(0, 1, 0),
+      aspect,
+      -OVERVIEW_FILL,
+      OVERVIEW_FILL,
+      -OVERVIEW_FILL,
+      OVERVIEW_FILL,
+    );
+    overviewLookAt.copy(fit.lookAt);
+    overviewZoom = 1 / fit.frustumHalfHeight;
+    camera.left = -1 * aspect;
+    camera.right = 1 * aspect;
+    camera.top = 1;
+    camera.bottom = -1;
+    camera.position.copy(overviewLookAt).addScaledVector(ISO_VIEW_DIRECTION, CAMERA_DISTANCE);
+    camera.zoom = overviewZoom;
+    camera.lookAt(overviewLookAt);
+    camera.updateProjectionMatrix();
+  }
+  computeOverviewFit();
+
+  // Stage 2 — overlay DOM (hover card + focus panel) and interaction
+  // (raycasting, hover/click, the camera dolly tween). `container` here
+  // is the same element the canvas lives in — the overlay positions
+  // itself relative to it via CSS (see index.astro's .hall-view-canvas
+  // being `position: relative`).
+  const overviewPosition = camera.position.clone();
+
+  // overlay is declared with `let` and assigned just below so its
+  // onFocusChange/onHoverChange callbacks (passed into createInteraction
+  // first) can close over it — createInteraction only invokes those
+  // callbacks in response to later pointer events, never synchronously
+  // during its own construction, so overlay is always assigned by the
+  // time either callback actually runs.
+  let overlay: ReturnType<typeof createOverlay>;
+  // Stage 2.1 — tracked so the render loop can re-project this target's
+  // own HUD anchor every frame (see updateFocusPanelPosition below). The
+  // anchor point needs to track both the camera's in-flight focus tween
+  // and window resizes, so a one-off position set at focus time isn't
+  // enough — it has to be continuous.
+  let focusedTarget: InteractionTarget | null = null;
+
+  const interaction = createInteraction(
+    renderer.domElement,
+    camera,
+    interactionTargets,
+    overviewPosition,
+    overviewLookAt,
+    overviewZoom,
+    aspect,
+    {
+      onHoverChange(target, screenX, screenY) {
+        overlay.showHover(target?.machine ?? null, screenX, screenY);
+      },
+      onFocusChange(target) {
+        focusedTarget = target;
+        overlay.showFocus(target?.machine ?? null);
+        // Positioned immediately, not left to wait for the next
+        // animate() frame — avoids a one-frame flash of the panel
+        // appearing at no particular position before its first update.
+        updateFocusPanelPosition();
+      },
+    },
+  );
+
+  overlay = createOverlay(container, () => interaction.returnToOverview());
+
+  // Stage 2.1/2.2 — projects focusedTarget's HUD anchor
+  // (machine-mesh.ts's getHudAnchorWorld) through the camera into
+  // container-relative screen pixels, and keeps the focus panel pinned
+  // there every frame (the anchor moves during the camera's focus tween
+  // and on window resize). Point 3's screen-space clamp: the focus
+  // shot's NDC rectangle (interaction.ts's FOCUS_NDC_TOP) already
+  // reserves room for the panel as a matter of 3D framing, but a
+  // clamp here is the safety net for whatever that reservation doesn't
+  // exactly cover (an unusually tall panel, an unusually narrow
+  // viewport) — it nudges the panel's on-screen position within the
+  // container's bounds, it never changes the 3D camera to make room.
+  const hudAnchorWorld = new THREE.Vector3();
+  function updateFocusPanelPosition(): void {
+    if (!focusedTarget) return;
+    focusedTarget.mesh.getHudAnchorWorld(hudAnchorWorld);
+    const ndc = hudAnchorWorld.clone().project(camera);
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const screenX = ((ndc.x + 1) / 2) * width;
+    const screenY = ((1 - ndc.y) / 2) * height;
+    overlay.updateFocusPosition(screenX, screenY, width, height);
+  }
+
+  function handleResize(): void {
+    const width = container.clientWidth;
+    const height = Math.max(container.clientHeight, 1);
+    aspect = width / height;
+    renderer.setSize(width, height);
+    computeOverviewFit();
+    overviewPosition.copy(camera.position);
+    interaction.refreshFraming(aspect, overviewPosition, overviewLookAt, overviewZoom);
+  }
+  window.addEventListener("resize", handleResize);
+
+  const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+  const clock = new THREE.Clock();
+  let frameId: number | null = null;
+  let previousElapsed = 0;
+  function animate(): void {
+    frameId = requestAnimationFrame(animate);
+    const elapsed = clock.getElapsedTime();
+    const delta = elapsed - previousElapsed;
+    previousElapsed = elapsed;
+    if (!prefersReducedMotion) {
+      for (const handle of machineHandles.values()) handle.update(elapsed);
+    }
+    // Always advances, unlike the ambient per-machine animation above:
+    // see interaction.ts's note on why a user-initiated camera move
+    // can't simply be skipped under reduced motion (it would leave the
+    // camera stuck at the overview position) — reduced motion instead
+    // makes interaction.ts's own tween duration near-instant.
+    interaction.update(delta);
+    updateFocusPanelPosition();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  function dispose(): void {
+    if (frameId !== null) cancelAnimationFrame(frameId);
+    window.removeEventListener("resize", handleResize);
+    interaction.dispose();
+    overlay.dispose();
+    renderer.dispose();
+    container.removeChild(renderer.domElement);
+  }
+
+  return { dispose };
+}

@@ -39,6 +39,12 @@ const byLocation = new Map(
   LOCATIONS.map((loc) => [loc, machines.filter((m) => m.location === loc)]),
 );
 
+// Stage 1 of the Live Hall View (see PROCESS.md): the A/B room only,
+// initialized from this page load's real machine state. Deliberately no
+// SSE wiring yet — that's Stage 2. Passed as serialized data the same
+// way STATUS_META already is, read once by the client module below.
+const hallViewMachines = byLocation.get("A/B")!;
+
 // Status semantics, not just decoration: available/out-of-order carry real
 // severity (good/critical, from the fixed status palette). in-use is a
 // neutral "occupied" identity, not a warning — nothing's wrong, so it gets
@@ -157,6 +163,37 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
          attention to. */
       .identity {
         margin-top: 0.6rem;
+        font-size: 0.78rem;
+        color: var(--ink-muted);
+      }
+
+      /* --- Live Hall View: a visual layer, never load-bearing for any
+         fact — see the aria-hidden note on the section itself. Sized
+         generously but capped so it reads as "a window into the Hall,"
+         not a full-bleed hero image competing with the dashboard below
+         it. --- */
+      .hall-view {
+        max-width: 44rem;
+        margin: 0 auto 1.5rem;
+      }
+      .hall-view-canvas {
+        position: relative; /* anchors the hover/focus overlays below */
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        box-shadow: 0 2px 10px rgba(44, 33, 21, 0.08);
+        background: var(--page);
+      }
+      .hall-view-canvas canvas {
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+      }
+      .hall-view-caption {
+        margin: 0.5rem 0 0;
+        text-align: center;
         font-size: 0.78rem;
         color: var(--ink-muted);
       }
@@ -423,6 +460,136 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         outline-offset: 1px;
       }
     </style>
+
+    {/* Stage 2's hover/focus overlay cards are created by
+        src/lib/hall-view/overlay.ts via document.createElement, not
+        written in this template — Astro's automatic per-component CSS
+        scoping only tags elements present in the template at build
+        time, so a scoped <style> rule here would silently never match
+        them (confirmed: the rule compiled fine but
+        getComputedStyle(...).position stayed "static", never
+        "absolute", on the live card). is:global is the correct,
+        deliberate choice for exactly this one case — dynamically
+        created DOM — not a workaround to route around scoping
+        elsewhere in this file. The one deliberate "cyber/HUD" accent
+        in the app — cyan/electric, monospace, small glowing borders —
+        kept confined to these two elements and the in-scene
+        outline/brackets they echo, never bleeding into the dashboard's
+        own warm, soft-edged visual language below. Restrained on
+        purpose: a thin glow and a little structure, not a packed
+        sci-fi console. */}
+    <style is:global>
+      .hall-hover-card {
+        position: absolute;
+        z-index: 2;
+        pointer-events: none; /* never intercepts the canvas's own pointer events */
+        min-width: 9rem;
+        padding: 0.5rem 0.7rem;
+        border-radius: 8px;
+        background: rgba(28, 21, 15, 0.82);
+        border: 1px solid rgba(95, 232, 224, 0.45);
+        box-shadow: 0 0 12px rgba(95, 232, 224, 0.25);
+        color: #eafffd;
+        font-size: 0.78rem;
+        line-height: 1.4;
+      }
+      .hall-hover-card__name {
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      .hall-hover-card__meta {
+        color: #9fd8d3;
+        font-size: 0.72rem;
+      }
+      .hall-status--available { color: #6fe08a; }
+      .hall-status--in-use { color: #6fc6ff; }
+      .hall-status--out-of-order { color: #ff8a8a; }
+      .hall-status--unknown { color: #a8a0ff; opacity: 0.75; }
+
+      /* Stage 2.2: left/top are computed entirely in JS
+         (overlay.ts's positionFocusPanel) as the panel's literal
+         top-left corner in container-space pixels, already accounting
+         for the stem's length and clamped to stay fully on-screen — no
+         CSS transform is applied (overlay.ts explicitly sets
+         `transform: none`), so there's nothing here for a transform to
+         conflict with. --hall-stem-length is set once from JS, in real
+         pixels, and read by both overlay.ts's clamp math and the
+         ::after stem below, so the two can never drift out of sync the
+         way a separately-guessed CSS px value could. */
+      .hall-focus-panel {
+        --hall-stem-length: 10px;
+        position: absolute;
+        z-index: 3;
+        width: 11.5rem;
+        padding: 0.7rem 0.8rem 0.6rem;
+        border-radius: 10px;
+        background: rgba(20, 16, 12, 0.88);
+        border: 1px solid rgba(95, 232, 224, 0.55);
+        box-shadow: 0 0 18px rgba(95, 232, 224, 0.3);
+        color: #eafffd;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+      /* The connecting "stem" — a short vertical line from the panel's
+         bottom edge down to the anchor point, making the two visually
+         one instrument rather than two unrelated floating pieces. */
+      .hall-focus-panel::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        bottom: calc(-1 * var(--hall-stem-length));
+        width: 1px;
+        height: var(--hall-stem-length);
+        background: rgba(95, 232, 224, 0.6);
+      }
+      .hall-focus-panel__close {
+        position: absolute;
+        top: 0.4rem;
+        right: 0.5rem;
+        background: none;
+        border: none;
+        color: #9fd8d3;
+        font-size: 1rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0.1rem 0.3rem;
+      }
+      .hall-focus-panel__close:hover { color: #eafffd; }
+      .hall-focus-panel__header {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        margin-bottom: 0.5rem;
+        padding-bottom: 0.4rem;
+        border-bottom: 1px solid rgba(95, 232, 224, 0.3);
+      }
+      .hall-focus-panel__name {
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .hall-focus-panel__status {
+        font-size: 0.72rem;
+        font-weight: 600;
+      }
+      .hall-focus-panel__facts {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.2rem 0.5rem;
+        margin: 0;
+        font-size: 0.72rem;
+      }
+      .hall-focus-panel__facts dt {
+        color: #9fd8d3;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        font-size: 0.65rem;
+      }
+      .hall-focus-panel__facts dd {
+        margin: 0;
+        text-align: right;
+      }
+    </style>
   </head>
   <body data-status-meta={JSON.stringify(STATUS_META)}>
     <main>
@@ -434,6 +601,21 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         </p>
         <p class="identity">You're reporting as <strong>{pseudonym}</strong></p>
       </header>
+
+      {/* Live Hall View — Stage 1: A/B room only, a visual layer above
+          the dashboard, never a replacement for it. aria-hidden because
+          every fact it shows is already stated as accessible text below;
+          a screen-reader user loses nothing by this section being
+          skipped entirely. No SSE wiring yet (Stage 2) — initialized
+          once from this page load's real state via data-machines. */}
+      <section
+        class="hall-view"
+        aria-hidden="true"
+        data-machines={JSON.stringify(hallViewMachines)}
+      >
+        <div class="hall-view-canvas" id="hall-view-canvas"></div>
+        <p class="hall-view-caption">A/B laundry room — live, Stage 1 preview</p>
+      </section>
 
       <section class="summary" aria-label="Laundry summary">
         {summary.map(({ key, count }) => (
@@ -528,6 +710,33 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         ))}
       </section>
     </main>
+
+    {/* Live Hall View mount — a separate, isolated module script. It
+        touches only #hall-view-canvas and never the dashboard markup
+        below; the dashboard's own script (next) knows nothing about
+        this one, and vice versa, matching the Stage 1 design: additive,
+        not wired into the dashboard's state machinery yet. */}
+    <script>
+      import { mount } from "../lib/hall-view/scene.ts";
+      import type { Machine } from "../lib/types.ts";
+
+      const container = document.getElementById("hall-view-canvas");
+      const section = document.querySelector<HTMLElement>(".hall-view");
+      if (container && section) {
+        try {
+          const machines = JSON.parse(section.dataset.machines!) as Machine[];
+          mount(container, machines);
+        } catch {
+          // WebGL unavailable, or anything else went wrong building the
+          // scene — the dashboard above and below is a complete
+          // experience on its own either way, so this fails silently
+          // rather than showing a broken canvas. See Stage 4 in the
+          // design notes for a more deliberate fallback treatment.
+          container.remove();
+          section.querySelector(".hall-view-caption")?.remove();
+        }
+      }
+    </script>
 
     <script>
       // Server-rendered badge text/icon/class (STATUS_META in the
