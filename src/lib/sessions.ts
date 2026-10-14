@@ -89,4 +89,11 @@ export function resolveSession(token: string | undefined): Session | null {
   return row ?? null;
 }
 
+// isHttpsRequest() (the cookie-Secure decision) lives in its own module,
+// src/lib/request-protocol.ts — it has nothing to do with sessions as
+// such, and keeping it dependency-free there (no import of this module,
+// which pulls in db.ts) lets it be unit-tested without opening a second
+// SQLite connection to a file a running app already has open.
+export { isHttpsRequest } from "./request-protocol.ts";
+
 export { COOKIE_NAME, COOKIE_MAX_AGE_SECONDS };

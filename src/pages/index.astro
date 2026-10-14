@@ -1,6 +1,12 @@
 ---
 import { LOCATIONS, listMachines, type Machine, type MachineStatus, type MachineType } from "../lib/db.ts";
-import { COOKIE_NAME, COOKIE_MAX_AGE_SECONDS, createSession, resolveSession } from "../lib/sessions.ts";
+import {
+  COOKIE_NAME,
+  COOKIE_MAX_AGE_SECONDS,
+  createSession,
+  isHttpsRequest,
+  resolveSession,
+} from "../lib/sessions.ts";
 import { logSessionCreated } from "../lib/log.ts";
 
 // Crit 10: resolve this browser's session from its cookie, or create a
@@ -14,18 +20,16 @@ if (!session) {
   const created = createSession();
   session = created.session;
   logSessionCreated(session.pseudonym);
-  // Secure only over HTTPS: Fly's proxy terminates TLS in front of the
-  // app (fly.toml), so a production request always qualifies; a local
-  // `pnpm dev`/`pnpm check` run against http://localhost:8080 must still
-  // get a cookie the browser (or a test's fetch) sends back, which
-  // `Secure` over plain HTTP would prevent.
-  const isHttps = Astro.url.protocol === "https:";
+  // Secure only over HTTPS — see isHttpsRequest() in
+  // src/lib/request-protocol.ts for why this can't be Astro.url.protocol
+  // alone: Fly's proxy forwards the request to this process over plain
+  // HTTP, so that check alone reads "http:" even on the live HTTPS site.
   Astro.cookies.set(COOKIE_NAME, created.token, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     maxAge: COOKIE_MAX_AGE_SECONDS,
-    secure: isHttps,
+    secure: isHttpsRequest(Astro.url, Astro.request.headers.get("x-forwarded-proto")),
   });
 }
 const pseudonym = session.pseudonym;
