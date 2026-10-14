@@ -8,15 +8,33 @@
 // the user free camera control (no orbit, no drag-to-rotate, nothing
 // the user can push further than the one fitted shot this sets up).
 //
-// Stage 2.2 — the focus camera's framing is now computed by
-// camera-fit.ts's fitBoundsToRect() from each machine's own real extent
-// (getFocusedExtentWorld()), not a hand-placed position/lookAt tuned by
-// screenshotting one viewport. See scene.ts for the equivalent fix to
-// the overview shot.
+// Stage 2.4 — the focus camera is no longer a "fit everything into a
+// rectangle" calculation at all. That approach (camera-fit.ts's
+// fitBoundsToRect(), used for the overview and an earlier version of
+// this) is right for "show the whole room," but wrong for "close-up on
+// one machine": the washer/dryer body is a fixed, deliberately NOT
+// reshaped 1.1×1.3 (narrower than tall) object, and fitting its full
+// extent (plus legs, plus the HUD bracket) into any landscape-canvas
+// rectangle is *always* bound by height — verified numerically before
+// this rewrite: even reserving zero margin at all, the content could
+// never exceed ~43% of frame width, no matter how the target rectangle
+// was shaped. That's not a bug to fix with more fitting math; a
+// close-up composition was never supposed to show the whole room
+// un-cropped the way the overview does. This now sizes the camera from
+// FIXED LOCAL GEOMETRY CONSTANTS (the bracket's top edge, the legs'
+// bottom edge — both already fixed values shared by every machine in
+// machine-mesh.ts, not a dynamic bounds computation) so the machine's
+// body fills a consistent ~75% of frame height on every focus, with the
+// walls/floor behind it cropped naturally like a real close-up — never
+// fit to show the whole room the way overview does. Width is whatever
+// the aspect ratio gives; no attempt is made to "use" unused width,
+// since the machine's own true proportions (not reshaped) don't call
+// for it. The DOM focus panel plays no part in this calculation at all
+// — see overlay.ts's screen-space clamp for how it stays on-screen
+// without the 3D camera reserving room for it.
 import * as THREE from "three";
 import type { Machine } from "../types.ts";
 import type { MachineMeshHandle } from "./machine-mesh.ts";
-import { fitBoundsToRect } from "./camera-fit.ts";
 
 export interface InteractionTarget {
   id: string;
@@ -89,24 +107,26 @@ const FOCUS_ELEVATION = Math.PI / 14;
 const FOCUS_VIEW_DIRECTION = new THREE.Vector3(0, Math.sin(FOCUS_ELEVATION), Math.cos(FOCUS_ELEVATION)).normalize();
 const FOCUS_CAMERA_DISTANCE = 10; // arbitrary — orthographic apparent size depends only on frustumHalfHeight/zoom, not distance
 
-// Stage 2.2 — the focus shot's target NDC rectangle. Asymmetric on
-// purpose: a real bug in the previous version tried to make room for
-// the DOM focus panel by shrinking the WHOLE 3D camera's zoom down
-// until the panel's own (variable) pixel height happened to fit above
-// it — which fought the user's actual ask ("focus 时机器应该明显比
-// overview 大很多") every time the panel was tall. Instead, the top of
-// the frame is reserved for the panel as a fixed fraction of the
-// viewport (not derived from any one panel's measured height), and the
-// machine + HUD brackets are fit as large as possible into the
-// remaining space — bottom/left/right keep only a small margin, so the
-// machine reads as genuinely larger in focus than in overview, not
-// smaller. Point 3 (screen-space clamp) is the safety net for whatever
-// doesn't fit this reserve exactly; this rectangle is the primary
-// mechanism, not a guess either is sufficient.
-const FOCUS_NDC_LEFT = -0.92;
-const FOCUS_NDC_RIGHT = 0.92;
-const FOCUS_NDC_BOTTOM = -0.92;
-const FOCUS_NDC_TOP = 0.35;
+// Stage 2.4 — the two fixed local-Y anchors the focus camera frames
+// between: the top HUD bracket's own top edge (0.78 + the bracket
+// line's own 0.22 reach — see machine-mesh.ts's bracketCorners/
+// buildBracketShape) and the legs' bottom edge (-0.75 — see
+// machine-mesh.ts's leg y-position of -0.7 minus half the leg's own
+// 0.1 height). These are the same shared constants every machine's
+// mesh is built from, not re-measured per machine — every washer/dryer
+// in this room has an identical body, so one fixed pair of anchors is
+// correct for all of them, not something to recompute from a live
+// bounds query the way the room-overview fit does.
+const FOCUS_TOP_ANCHOR_Y = 1.0;
+const FOCUS_BOTTOM_ANCHOR_Y = -0.75;
+// Small, deliberately asymmetric-in-spirit-only NDC margins: both are
+// "small" per the brief, but kept as two named constants rather than
+// one shared value in case the top ever needs slightly more headroom
+// than the bottom for a reason unrelated to the DOM panel (the panel
+// itself plays NO part in this calculation — see this module's own
+// top-of-file note).
+const FOCUS_TOP_MARGIN = 0.05;
+const FOCUS_BOTTOM_MARGIN = 0.05;
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -162,25 +182,65 @@ export function createInteraction(
     };
   }
 
-  // Computes this target's fitted focus camera pose fresh from its real
-  // current extent (getFocusedExtentWorld()) and the current aspect
-  // ratio — never a cached/precomputed value, so a resize (which
-  // changes aspect) or this running at a different time always reflects
-  // the live geometry, not a value baked in at construction.
+  // Stage 2.4 — a close-up composition, not a bounds fit. Frames the
+  // camera so FOCUS_TOP_ANCHOR_Y and FOCUS_BOTTOM_ANCHOR_Y — fixed local
+  // points every machine's mesh shares — land at the top/bottom NDC
+  // margins, vertically. Horizontally, the machine is simply centered
+  // (its own local X=0, i.e. the body's true center) — no horizontal
+  // fit is attempted; width is whatever the resulting zoom/aspect gives,
+  // deliberately (see this module's top-of-file note on why fitting
+  // width would require either distorting the machine or capping zoom
+  // so low the shot stops being a close-up at all).
+  //
+  // The two world-space anchor points are built once from the fixed
+  // local Y constants (every machine's identical geometry) plus this
+  // target's own slot position (mesh.group.position, the world
+  // placement scene.ts already assigned it) — not from a live bounds
+  // query, since the composition is deliberately the same for every
+  // machine regardless of its current status (status changes material/
+  // animation, never geometry).
   function computeFocusCamera(target: InteractionTarget): { position: THREE.Vector3; lookAt: THREE.Vector3; zoom: number } {
-    const corners = target.mesh.getFocusedExtentWorld();
-    const fit = fitBoundsToRect(
-      corners,
-      FOCUS_VIEW_DIRECTION,
-      new THREE.Vector3(0, 1, 0),
-      currentAspect,
-      FOCUS_NDC_LEFT,
-      FOCUS_NDC_RIGHT,
-      FOCUS_NDC_BOTTOM,
-      FOCUS_NDC_TOP,
-    );
-    const position = fit.lookAt.clone().addScaledVector(FOCUS_VIEW_DIRECTION, FOCUS_CAMERA_DISTANCE);
-    return { position, lookAt: fit.lookAt, zoom: 1 / fit.frustumHalfHeight };
+    const slot = target.mesh.group.position;
+    const topAnchor = slot.clone().add(new THREE.Vector3(0, FOCUS_TOP_ANCHOR_Y, 0));
+    const bottomAnchor = slot.clone().add(new THREE.Vector3(0, FOCUS_BOTTOM_ANCHOR_Y, 0));
+
+    const up = new THREE.Vector3(0, 1, 0);
+    // camUp: the camera's actual up vector in world space for this view
+    // direction — not simply world +Y, since FOCUS_VIEW_DIRECTION has a
+    // slight upward elevation (see this file's own note on why), so the
+    // camera's local "up" is tilted slightly forward of true vertical.
+    // Reusing the same probe-camera technique camera-fit.ts verified,
+    // rather than assuming camUp === up.
+    const probe = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
+    probe.position.copy(FOCUS_VIEW_DIRECTION).multiplyScalar(100);
+    probe.up.copy(up);
+    probe.lookAt(0, 0, 0);
+    probe.updateMatrixWorld();
+    const camUp = new THREE.Vector3().setFromMatrixColumn(probe.matrixWorld, 1);
+
+    const topU = topAnchor.dot(camUp);
+    const bottomU = bottomAnchor.dot(camUp);
+    const availableNdcSpan = 2 - FOCUS_TOP_MARGIN - FOCUS_BOTTOM_MARGIN;
+    const frustumHalfHeight = (topU - bottomU) / availableNdcSpan;
+    // lookAt's camUp-component such that topAnchor lands exactly at NDC
+    // (1 - FOCUS_TOP_MARGIN): (topU - lookAtU) / frustumHalfHeight == 1 - FOCUS_TOP_MARGIN
+    const lookAtU = topU - (1 - FOCUS_TOP_MARGIN) * frustumHalfHeight;
+
+    // Horizontal placement: center on the machine's own slot X/Z — no
+    // width fitting, just centering the body itself in frame.
+    const lookAt = slot.clone();
+    // Overwrite only the camUp-axis component with the vertically-solved
+    // value above; camera.lookAt() (used when actually aiming the real
+    // camera, both here for position and in update()'s tween) handles
+    // the rest of the orientation correctly regardless of this point's
+    // exact camRight/view-direction components, since those two other
+    // axes are already what slot naturally gives.
+    const camRight = new THREE.Vector3().setFromMatrixColumn(probe.matrixWorld, 0);
+    const slotR = slot.dot(camRight);
+    lookAt.copy(new THREE.Vector3().addScaledVector(camRight, slotR).addScaledVector(camUp, lookAtU));
+
+    const position = lookAt.clone().addScaledVector(FOCUS_VIEW_DIRECTION, FOCUS_CAMERA_DISTANCE);
+    return { position, lookAt, zoom: 1 / frustumHalfHeight };
   }
 
   // Raycasts only against each target's dedicated hitbox mesh — a flat,

@@ -711,12 +711,12 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       </section>
     </main>
 
-    {/* Live Hall View mount — its own inline <script> block, still
-        touching only #hall-view-canvas, never the dashboard markup.
-        Stage 2.3: the dashboard's own script (next) now imports
+    {/* Live Hall View mount — its own inline script block, still
+        touching only the hall-view-canvas element, never the dashboard
+        markup. Stage 2.3: the dashboard's own script (next) now imports
         applyMachineToScene from this same scene.ts module to feed it
         live updates — see that import's own note on how two separate
-        inline <script> blocks share one module instance. Nothing here
+        inline script blocks share one module instance. Nothing here
         changes: this block still only mounts the scene from the
         page's initial state; it's the *other* script that reaches
         into this module now, not this one reaching out. */}
@@ -745,7 +745,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
     <script>
       // Stage 2.3: the 3D hall view's only hook into live updates — see
       // scene.ts's own note on why importing this here, from a second,
-      // separate inline <script> block, still reaches the same module
+      // separate inline script block, still reaches the same module
       // instance mount() runs in (ES modules are singletons keyed by
       // URL; both scripts import the same file).
       import { applyMachineToScene } from "../lib/hall-view/scene.ts";

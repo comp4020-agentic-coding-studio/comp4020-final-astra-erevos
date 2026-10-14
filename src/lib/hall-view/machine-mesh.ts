@@ -356,19 +356,37 @@ export function buildMachineMesh(type: MachineType, initialStatus: MachineStatus
   statusLed.position.set(0.32, 0.52, 0.53);
   shake.add(statusLed);
 
-  // Stage 2 — HUD corner brackets: four small L-shapes at the
-  // body's corners, shown only on focus. A restrained "instrument panel"
-  // accent, not a full bounding frame — see the Stage 2 direction on
-  // keeping this a small, precise, understated future-ish register
-  // rather than game-UI chrome.
+  // Stage 2 — HUD corner brackets: TOP-left/TOP-right only. A real bug,
+  // found and fixed in the Stage 2.3 framing pass: all four corners
+  // (including two bottom segments) were originally built, but the
+  // bottom pair connects to nothing — the top pair visually merges into
+  // the focus panel's own stem above them (one continuous instrument
+  // frame), while the bottom pair just floats in empty space below the
+  // machine with no panel, no stem, nothing to visually close the frame
+  // against. Confirmed directly (not guessed): a debug scene dump
+  // showed exactly 4 Line objects with nonzero opacity whenever a
+  // machine is focused, at the expected bottom-bracket world positions,
+  // proving the "stray disconnected cyan line" a screenshot showed was
+  // a real, intentionally-built mesh — not a leftover from the ground
+  // glow or hazard tape. Removing the bottom pair also fixes the second
+  // problem it was silently causing: machine-mesh.ts's
+  // getFocusedExtentWorld() included the bottom brackets' full extent
+  // (reaching 0.39 world units below the legs) in the box camera-fit.ts
+  // fits the focus camera to — that extra height, on top of the body +
+  // legs + top bracket's own height, made the fitted box tall enough
+  // relative to the canvas's landscape aspect ratio that no choice of
+  // margin could use more than ~30% of the available width (verified
+  // numerically: even with zero panel-reservation, the full
+  // body+legs+both-brackets box only ever filled ~34% of frame width).
+  // Dropping the unconnected bottom pair removes that unnecessary
+  // height outright, rather than trying to compensate for it with a
+  // wider target rectangle or a different margin.
   const bracketMaterial = new THREE.LineBasicMaterial({ color: 0x5fe8e0, transparent: true, opacity: 0 });
   const bracketCorners: Array<[number, number, number, number]> = [
     [-0.68, 0.78, 1, 1], // top-left: no flip
     [0.68, 0.78, -1, 1], // top-right: flip x
-    [-0.68, -0.82, 1, -1], // bottom-left: flip y
-    [0.68, -0.82, -1, -1], // bottom-right: flip both
   ];
-  // One shared material instance across all four — they always show/hide
+  // One shared material instance across both — they always show/hide
   // together, so there's nothing per-instance to differentiate.
   const brackets: THREE.Line[] = [];
   for (const [x, y, flipX, flipY] of bracketCorners) {
