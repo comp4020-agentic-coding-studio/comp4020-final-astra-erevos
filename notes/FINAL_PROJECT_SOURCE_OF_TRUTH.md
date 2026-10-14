@@ -45,9 +45,14 @@ This is deliberately a small community rather than a general public social netwo
 
 Residents contribute information about shared spaces, and other residents use that information to decide where to go and what is available.
 
-The exact identity and verification model is not fixed yet.
-
-Possible approaches include resident accounts, invitation-based access, or another lightweight form of resident verification.
+**Decided for now, verification model still open (2026-10-14):** identity
+is a server-issued pseudonymous browser session — see §9's Crit 10 entry
+and `notes/adr/0002-identity-and-permissions.md`. This tells two people
+apart and checks permissions server-side, which is what Crit 10 asked
+for; it does not verify that a pseudonym is actually a Toad Hall
+resident. Whether that verification is ever needed, and if so whether via
+resident accounts, invitation-based access, or another lightweight form,
+remains open.
 
 ---
 
@@ -273,7 +278,9 @@ Crit 8 build:
   as remaining time when present, otherwise "remaining time unknown"
   (see §3);
 - out-of-order is sticky — no time-based expiry;
-- who/when last updated is stored (an opaque reporter id, no name/login yet);
+- who/when last updated is stored (an opaque reporter id, no name/login
+  yet — since Crit 10, that id is a server-issued session, not a
+  client-asserted one; see the Crit 10 entry below);
 - a simple way for a visitor to change one machine's state.
 
 Explicitly deferred past Crit 8 — each a deliberate scope decision recorded
@@ -293,8 +300,9 @@ in PROCESS.md, not a gap:
   freshness policy beyond this — available/unknown lifetimes, the
   provisional window's real value — is still open, pending real
   cycle-time data, not guessed;
-- verified resident identity — stays a lightweight anonymous/pseudonymous
-  session for now, schema-compatible with adding verification later;
+- verified resident identity — stays open; what's decided and shipped
+  (Crit 10) is server-issued pseudonymous session identity, not
+  verification of who a person actually is. See the Crit 10 entry below;
 - every other shared space (study/common rooms, reception, courtyards).
 
 The Crit 8 proof-of-life path:
@@ -309,13 +317,40 @@ The Crit 8 proof-of-life path:
 
 ---
 
+# 9a. Crit 10 — identity, permissions, and logging
+
+**Decided and implemented (2026-10-14):** the final project must be
+multi-user, with the server — not the client — telling people apart and
+checking what each may do. Interrogated against three options (keeping
+the existing client-generated, client-asserted reporter id; a
+server-issued pseudonymous session; full verified accounts) and decided
+on the second: see `notes/adr/0002-identity-and-permissions.md` for the
+full comparison, mechanics, and live verification. In short — a
+high-entropy credential the server issues and hashes, never a client
+claim; no invented per-machine ownership, since laundry is shared state
+with no "whose washer" concept in this app; every mutation attempt
+logged server-side, pseudonym-only, readable from `flyctl logs` alone.
+Verified live against the deployed Fly app: two isolated Chrome profiles
+produced two distinct, log-visible pseudonyms, and a tutor narrated a
+report/conflict/reconfirm/success sequence entirely from the log stream
+without touching the app. A related production-only bug (the session
+cookie's `Secure` attribute silently not being set behind Fly's
+TLS-terminating proxy) was caught by this same live check and fixed in
+`d7d0cd7` — see PROCESS.md.
+
+---
+
 # 10. Decisions still open
 
 The following should be interrogated before they are fixed:
 
-- exact resident identity / verification model;
+- verified resident identity — **partially decided**: server-issued
+  pseudonymous session identity is implemented and verified (Crit 10,
+  §9a); whether a pseudonym should ever be tied to a real, verified
+  resident remains open;
 - whether non-residents can see any information;
-- how updates are attributed;
+- how updates are attributed — **decided and implemented** for Crit 10:
+  a server-resolved session id, never a client-supplied value — see §9a;
 - how conflicts between two simultaneous updates are handled — **decided
   and implemented** for Crit 9 (optimistic concurrency / stale-write
   rejection): see `notes/adr/0001-realtime-and-concurrent-updates.md`,

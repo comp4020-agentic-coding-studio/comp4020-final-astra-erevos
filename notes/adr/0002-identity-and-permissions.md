@@ -1,6 +1,12 @@
 # ADR 0002: Server-issued pseudonymous identity and permissions
 
-**Status**: Accepted (Crit 10) — design decided, implementation pending.
+**Status**: Implemented (Crit 10) — identity/authorization in
+[`a87c7c3`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/a87c7c3),
+logging in
+[`347e5c1`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/347e5c1),
+a production cookie fix in
+[`d7d0cd7`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/d7d0cd7),
+verified live against the deployed Fly app — see Verification below.
 
 ## Context
 
@@ -202,10 +208,33 @@ record), with no verified-identity reason to make it effectively
 permanent. Clearing cookies, or opening a fresh incognito profile —
 exactly what the crit's two-Chrome-profile demo does — creates a new
 anonymous identity, which is the intended behaviour, not something to
-engineer around. `Secure` is set only when the request arrived over
-HTTPS, so the cookie still works against `http://localhost:8080` in
-local development and in `spec/`'s tests; Fly's deployment is HTTPS-only,
-so production requests always qualify.
+engineer around.
+
+`Secure` is meant to be set whenever the request arrived over HTTPS, and
+not otherwise — so the cookie still works against
+`http://localhost:8080` in local development and in `spec/`'s tests. The
+first implementation got this wrong in a way only the live deployment
+exposed: it decided `Secure` from the app's own request URL
+(`Astro.url.protocol`) alone. Fly's proxy terminates TLS in front of the
+app and forwards every request to the Node process over plain HTTP
+(`fly.toml`'s own comment: "the app itself sees plain http"), so that
+check read `"http:"` even on the live HTTPS site, and `Secure` was
+silently never set in production — the opposite of the intent. `curl`
+against the real `https://…fly.dev` URL during the Crit 10 rehearsal
+check caught this directly, in the `Set-Cookie` header itself; nothing
+in local testing could have, since `localhost` has no TLS-terminating
+proxy standing in front of it to hide this distinction behind.
+[`d7d0cd7`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/d7d0cd7)
+fixed it: a request counts as HTTPS if either signal says so — the
+app's own URL, or Fly's trusted `X-Forwarded-Proto` header, read via
+`Astro.request.headers` and handled safely (first value only,
+case-insensitive, tolerant of a multi-hop comma-separated form). The
+decision was extracted into its own dependency-free module
+(`src/lib/request-protocol.ts`) specifically so it could be unit-tested
+without pulling in the database module as a side effect, with
+regression coverage for both the direct-HTTPS and internal-HTTP-plus-
+forwarded-header cases. Re-checking the live `Set-Cookie` header after
+the fix confirmed `Secure` present.
 
 **API**: `PATCH /api/machines/:id` resolves the session from the request
 cookie before parsing the body. No session, or a token hashing to no
@@ -231,12 +260,39 @@ testable anti-impersonation contract instead of an implicit one.
 
 ## Verification
 
-Automated: `spec/identity.test.ts` (added this crit) — two cookie-less
-requests to `/` receive different session cookies and different rendered
-pseudonyms; a `PATCH` with no cookie, or with an unissued token, is
-rejected `401` with the machine row unchanged; a `PATCH` body carrying
-`reporterId` is rejected `400` with the row unchanged; a valid session's
-`PATCH` succeeds and a later independent `GET` confirms the write
-persisted; the same cookie resolves to the same pseudonym across repeat
-requests. Manual: the crit's own two-separate-Chrome-profile narration
-from `flyctl logs`, the actual rehearsal this design exists to pass.
+Automated: `spec/identity.test.ts` — two cookie-less requests to `/`
+receive different session cookies and different rendered pseudonyms; a
+`PATCH` with no cookie, or with an unissued token, is rejected `401`
+with the machine row unchanged; a `PATCH` body carrying `reporterId` is
+rejected `400` with the row unchanged; a valid session's `PATCH`
+succeeds and a later independent `GET` confirms the write persisted
+(with no `reporterId` in the response); the same cookie resolves to the
+same pseudonym across repeat requests. `spec/log.test.ts` checks the
+exact `[toadlive]` line shapes for `session_created` and all three
+`PATCH` outcomes. `spec/request-protocol.test.ts` covers the `Secure`
+decision directly: a direct HTTP request with no forwarded header is
+not HTTPS; a direct HTTPS request is; an internal HTTP request carrying
+`X-Forwarded-Proto: https` — the exact shape Fly's proxy produces — is;
+only the first value of a multi-hop header is read; the decision is
+case- and whitespace-tolerant.
+
+Manual, against the real deployed app, not a local stand-in: two
+isolated Chrome profiles opened `https://comp4020-final-astra-erevos.fly.dev`
+directly, no cookies or storage shared between them, with one person
+narrating entirely from `mise exec -- flyctl logs -a
+comp4020-final-astra-erevos` and never touching the app. The two
+profiles appeared as distinct pseudonyms (`Toad-30F342`, `Toad-EA3A0F`),
+each with its own `session_created` line. `Toad-30F342` reporting
+`e-dryer` as `in-use` and `Toad-EA3A0F` reporting `c-washer` as
+`available` both appeared as `result=ok`, naming their own actor and
+machine. `Toad-EA3A0F` was then deliberately forced to report
+`e-dryer` on a stale version: the log showed `result=conflict` against
+the current version, and once that profile reconfirmed against the
+canonical state, the same actor's second attempt appeared as
+`result=ok` with the version advanced again — the full
+report/conflict/reconfirm/success loop, readable from the log stream
+alone, with no need to look at either browser. Ordinary `GET`/SSE
+traffic produced no `[toadlive]` lines throughout. The live
+`Set-Cookie` header was checked directly (`curl -sD-`) both before and
+after the `d7d0cd7` proxy fix — confirmed missing `Secure` beforehand,
+confirmed present after.
