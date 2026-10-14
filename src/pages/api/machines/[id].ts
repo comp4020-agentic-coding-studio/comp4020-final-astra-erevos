@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { getMachine, reportStatus, VALID_STATUSES, type MachineStatus } from "../../../lib/db.ts";
 import { COOKIE_NAME, resolveSession } from "../../../lib/sessions.ts";
+import { logReportOutcome, logReportRejected } from "../../../lib/log.ts";
 
 const json = (data: unknown, status: number): Response =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -55,8 +56,14 @@ function isSafePositiveInteger(value: unknown): value is number {
 // notes/adr/0001-realtime-and-concurrent-updates.md. A stale view gets 409
 // with the current canonical state, never a silent overwrite.
 export const PATCH: APIRoute = async ({ params, request, cookies }) => {
+  const machineId = params.id!;
   const session = resolveSession(cookies.get(COOKIE_NAME)?.value);
   if (!session) {
+    // Rejected before the body is even parsed: there's no status to name
+    // here, because the server never read one — see
+    // notes/adr/0002-identity-and-permissions.md on not inventing a
+    // requested status the server never actually parsed.
+    logReportRejected({ actor: "(none)", machine: machineId, reason: "no-session" });
     return json({ error: "a valid session is required to report a machine's status" }, 401);
   }
 
@@ -65,6 +72,9 @@ export const PATCH: APIRoute = async ({ params, request, cookies }) => {
     return json({ error: `status must be one of: ${VALID_STATUSES.join(", ")}` }, 400);
   }
   if (body.reporterId !== undefined) {
+    // The real, authenticated actor attempted this — never the forged
+    // value they tried to claim, which is dropped here, not logged.
+    logReportRejected({ actor: session.pseudonym, machine: machineId, reason: "client-actor-claim" });
     return json({ error: "reporterId is server-controlled" }, 400);
   }
   if (body.startedAt !== undefined && !isSafePositiveInteger(body.startedAt)) {
@@ -78,7 +88,7 @@ export const PATCH: APIRoute = async ({ params, request, cookies }) => {
   }
 
   const result = reportStatus(
-    params.id!,
+    machineId,
     {
       status: body.status,
       startedAt: body.startedAt,
@@ -88,7 +98,24 @@ export const PATCH: APIRoute = async ({ params, request, cookies }) => {
     body.ifVersion,
   );
 
-  if (result.ok) return json(result.machine, 200);
+  if (result.ok) {
+    logReportOutcome({
+      actor: session.pseudonym,
+      machine: machineId,
+      status: body.status,
+      result: "ok",
+      version: result.machine.version,
+    });
+    return json(result.machine, 200);
+  }
   if (result.reason === "not-found") return json({ error: "no such machine" }, 404);
+
+  logReportOutcome({
+    actor: session.pseudonym,
+    machine: machineId,
+    status: body.status,
+    result: "conflict",
+    version: result.current.version,
+  });
   return json({ error: "stale version", current: result.current }, 409);
 };

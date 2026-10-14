@@ -1,6 +1,7 @@
 ---
 import { LOCATIONS, listMachines, type Machine, type MachineStatus, type MachineType } from "../lib/db.ts";
 import { COOKIE_NAME, COOKIE_MAX_AGE_SECONDS, createSession, resolveSession } from "../lib/sessions.ts";
+import { logSessionCreated } from "../lib/log.ts";
 
 // Crit 10: resolve this browser's session from its cookie, or create a
 // new one on first visit — page loads are the one place creation
@@ -12,6 +13,7 @@ let session = resolveSession(Astro.cookies.get(COOKIE_NAME)?.value);
 if (!session) {
   const created = createSession();
   session = created.session;
+  logSessionCreated(session.pseudonym);
   // Secure only over HTTPS: Fly's proxy terminates TLS in front of the
   // app (fly.toml), so a production request always qualifies; a local
   // `pnpm dev`/`pnpm check` run against http://localhost:8080 must still
