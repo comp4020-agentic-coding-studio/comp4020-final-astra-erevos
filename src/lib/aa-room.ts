@@ -2,7 +2,13 @@ import type { DatabaseSync } from "node:sqlite";
 import { db } from "./db.ts";
 import { broadcast } from "./realtime.ts";
 import { computeFreshness } from "./freshness.ts";
-import type { AaRoomActivity, AaRoomOccupancy, AaRoomState, ReportableAaRoomOccupancy } from "./types.ts";
+import {
+  VALID_AA_ROOM_ACTIVITIES,
+  type AaRoomActivity,
+  type AaRoomOccupancy,
+  type AaRoomState,
+  type ReportableAaRoomOccupancy,
+} from "./types.ts";
 
 // AA Room — Toad Live's second facility. See
 // notes/adr/0003-aa-room-live-state.md for the full decision this module
@@ -11,13 +17,101 @@ import type { AaRoomActivity, AaRoomOccupancy, AaRoomState, ReportableAaRoomOccu
 // db.ts the same way machines are.
 const AA_ROOM_ID = "aa-room";
 
+// The raw stored row carries `activities` as a JSON TEXT blob (see
+// db/schema.sql) — parsed into AaRoomActivity[] only at the toAaRoomState()
+// boundary, same "parse at the edge" shape the rest of this module already
+// uses for timestamps.
 interface AaRoomRow {
   id: string;
   occupancy: AaRoomOccupancy;
-  activity: AaRoomActivity | null;
+  activities: string;
   confirmed_at: number | null;
   reporter_id: string | null;
   version: number;
+}
+
+// Dedup + canonical ordering (notes/adr/0003-aa-room-live-state.md,
+// "Validity constraints"): every stored and returned `activities` array
+// is normalized through this exact function — seed, report, decay, and
+// every read alike — so two reports of the same set never look like a
+// change, and nothing downstream (panel, 3D scene, tests, SSE/409
+// payloads) ever has to compare arrays as sets instead of positionally.
+// Exported so the API route can canonicalize a client's submitted array
+// BEFORE running its own occupied/event-exclusivity validation — those
+// checks must judge the deduped set, not the client's raw array (e.g.
+// `["event", "event"]` should be judged as the valid exclusive set
+// `["event"]`, not rejected for "looking like" two activities).
+export function canonicalizeActivities(activities: readonly AaRoomActivity[]): AaRoomActivity[] {
+  const present = new Set(activities);
+  return VALID_AA_ROOM_ACTIVITIES.filter((activity) => present.has(activity));
+}
+
+function parseActivities(raw: string): AaRoomActivity[] {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return canonicalizeActivities(parsed.filter((value): value is AaRoomActivity =>
+      (VALID_AA_ROOM_ACTIVITIES as readonly string[]).includes(value),
+    ));
+  } catch {
+    return [];
+  }
+}
+
+// Brings an already-deployed pre-v2 /data volume forward — see
+// notes/adr/0003-aa-room-live-state.md, "Migrating the already-deployed
+// v1 row." Mirrors db.ts's migrateVersionColumn() (PRAGMA table_info +
+// conditional ALTER TABLE), but with a second, independent step: adding
+// the column and backfilling it from the legacy `activity` column are two
+// separate writes, and a process can restart between them, so "the column
+// exists" is never treated as proof backfill already ran — only the
+// row's own content (still at the column default while occupied) is.
+// Safe to call unconditionally on every startup, including against a
+// fresh database that never had an `activity` column at all (PRAGMA
+// table_info then simply has nothing to add, and the row — not yet
+// seeded — makes this a no-op until seedAaRoomIfEmpty() runs after it).
+// The legacy `activity` column is deliberately left in place, not
+// dropped — see the ADR: this keeps the migration reversible rather than
+// destroying the pre-correction data in the same step that reinterprets
+// it. New code never reads or writes it again.
+export function migrateAaRoomActivitiesColumn(store: AaRoomStore): void {
+  const columns = store.db.prepare("PRAGMA table_info(aa_room)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "activities")) {
+    store.db.exec("ALTER TABLE aa_room ADD COLUMN activities TEXT NOT NULL DEFAULT '[]'");
+  }
+
+  const hasLegacyActivityColumn = (
+    store.db.prepare("PRAGMA table_info(aa_room)").all() as Array<{ name: string }>
+  ).some((column) => column.name === "activity");
+  if (!hasLegacyActivityColumn) return; // fresh database — nothing to backfill from
+
+  const row = store.db
+    .prepare("SELECT occupancy, activity, activities FROM aa_room WHERE id = ?")
+    .get(AA_ROOM_ID) as { occupancy: string; activity: string | null; activities: string } | undefined;
+  if (!row) return; // not seeded yet — seedAaRoomIfEmpty() runs after this
+
+  // A row only needs backfilling when it's occupied but activities is
+  // still at the column default: empty/unknown rows always already
+  // satisfy activities = '[]' under v1's own invariant (activity was
+  // only ever set alongside occupancy = 'occupied'), so there is nothing
+  // for those to backfill, and an already-backfilled occupied row has a
+  // non-default activities value this check correctly leaves alone.
+  if (row.occupancy !== "occupied" || row.activities !== "[]") return;
+
+  const activities: AaRoomActivity[] =
+    row.activity === "tv"
+      ? ["tv"]
+      : row.activity === "pool"
+        ? ["pool"]
+        : row.activity === "table-tennis"
+          ? ["table-tennis"]
+          : row.activity === "event"
+            ? ["event"]
+            : ["hanging-out"]; // occupied + activity NULL under v1 meant exactly this
+
+  store.db
+    .prepare("UPDATE aa_room SET activities = ? WHERE id = ?")
+    .run(JSON.stringify(activities), AA_ROOM_ID);
 }
 
 // Every function below takes an explicit `store` — defaulting to the
@@ -85,7 +179,7 @@ function decayedAaRoom(
   const { changes } = store.db
     .prepare(
       `UPDATE aa_room
-       SET occupancy = 'unknown', activity = NULL, version = version + 1
+       SET occupancy = 'unknown', activities = '[]', version = version + 1
        WHERE id = ? AND occupancy != 'unknown'`,
     )
     .run(row.id);
@@ -99,7 +193,7 @@ function decayedAaRoom(
     return store.db.prepare("SELECT * FROM aa_room WHERE id = ?").get(row.id) as unknown as AaRoomRow;
   }
 
-  const updated: AaRoomRow = { ...row, occupancy: "unknown", activity: null, version: row.version + 1 };
+  const updated: AaRoomRow = { ...row, occupancy: "unknown", activities: "[]", version: row.version + 1 };
   broadcast({ kind: "aa-room", room: toAaRoomState(updated, now) });
   return updated;
 }
@@ -107,7 +201,7 @@ function decayedAaRoom(
 function toAaRoomState(row: AaRoomRow, now: number): AaRoomState {
   return {
     occupancy: row.occupancy,
-    activity: row.activity,
+    activities: parseActivities(row.activities),
     confirmedAt: row.confirmed_at,
     version: row.version,
     freshness: computeFreshness(row.occupancy, row.confirmed_at, now),
@@ -129,7 +223,13 @@ export function getAaRoom(now: number = Date.now(), store: AaRoomStore = default
 
 export interface AaRoomReport {
   occupancy: ReportableAaRoomOccupancy;
-  activity: AaRoomActivity | null;
+  // Already validated and canonicalized (deduped, event-exclusivity,
+  // occupied-requires-nonempty) by the API route before this is called —
+  // see src/pages/api/aa-room.ts and notes/adr/0003-aa-room-live-state.md's
+  // "Validity constraints." This function still independently forces
+  // activities to [] whenever occupancy isn't "occupied" (below), so a
+  // caller can never persist an inconsistent row even by mistake.
+  activities: AaRoomActivity[];
   reporterId: string | null;
 }
 
@@ -140,13 +240,13 @@ export type AaRoomUpdateResult =
   | { ok: true; room: AaRoomState }
   | { ok: false; reason: "stale"; current: AaRoomState };
 
-// A report is a confirmation event: confirmed_at moves to `now`. Activity
-// is only ever written alongside "occupied" — the API route enforces this
-// before calling here (mirrors machines.ts's reportStatus(), where
-// startedAt/expectedEndAt only mean anything for "in-use"), but this
-// function also clears activity itself whenever occupancy isn't
-// "occupied", so a caller can never persist an inconsistent row even by
-// mistake.
+// A report is a confirmation event: confirmed_at moves to `now`.
+// Activities are only ever written alongside "occupied" — the API route
+// enforces this (and the full validity-constraint set) before calling
+// here (mirrors machines.ts's reportStatus(), where startedAt/
+// expectedEndAt only mean anything for "in-use"), but this function also
+// forces activities to [] itself whenever occupancy isn't "occupied", so
+// a caller can never persist an inconsistent row even by mistake.
 //
 // ifVersion-conditioned exactly like machines.ts's reportStatus(): the
 // UPDATE's WHERE guard makes the write atomic against both another
@@ -164,15 +264,15 @@ export function reportAaRoomStatus(
   now: number = Date.now(),
   store: AaRoomStore = defaultStore(),
 ): AaRoomUpdateResult {
-  const activity = report.occupancy === "occupied" ? report.activity : null;
+  const activities = report.occupancy === "occupied" ? canonicalizeActivities(report.activities) : [];
 
   const { changes } = store.db
     .prepare(
       `UPDATE aa_room
-       SET occupancy = ?, activity = ?, confirmed_at = ?, reporter_id = ?, version = version + 1
+       SET occupancy = ?, activities = ?, confirmed_at = ?, reporter_id = ?, version = version + 1
        WHERE id = ? AND version = ?`,
     )
-    .run(report.occupancy, activity, now, report.reporterId, AA_ROOM_ID, ifVersion);
+    .run(report.occupancy, JSON.stringify(activities), now, report.reporterId, AA_ROOM_ID, ifVersion);
 
   if (changes === 1) {
     const written = store.db.prepare("SELECT * FROM aa_room WHERE id = ?").get(AA_ROOM_ID) as unknown as AaRoomRow;
@@ -184,12 +284,19 @@ export function reportAaRoomStatus(
   return { ok: false, reason: "stale", current: getAaRoom(now, store) };
 }
 
-// Self-seeds the app's one shared row against the app's one shared
-// connection (db.ts), the moment this module is first imported — the
-// same "seed at module load" shape db.ts itself uses for machines,
-// placed here rather than in db.ts to avoid a db.ts -> aa-room.ts ->
-// db.ts import cycle (db.ts has no reason to know about AA Room; this
-// module already depends on db.ts one-way). A throwaway test store built
-// by a test is never touched by this — it calls seedAaRoomIfEmpty(store)
-// itself, explicitly, against its own database.
+// Migrates, then self-seeds, the app's one shared row against the app's
+// one shared connection (db.ts), the moment this module is first
+// imported — the same "run DDL migrations, then seed, at module load"
+// shape db.ts itself uses for machines (migrateVersionColumn() before
+// seedIfEmpty()), placed here rather than in db.ts to avoid a db.ts ->
+// aa-room.ts -> db.ts import cycle (db.ts has no reason to know about AA
+// Room; this module already depends on db.ts one-way). Migration must run
+// before seeding: seedAaRoomIfEmpty() is a no-op against an
+// already-seeded row, so an already-deployed row is exactly the one this
+// order protects — it gets migrated in place, never re-seeded over. A
+// throwaway test store built by a test is never touched by either call
+// here — it calls seedAaRoomIfEmpty(store) (and, if it needs to exercise
+// the migration path itself, migrateAaRoomActivitiesColumn(store))
+// explicitly, against its own database.
+migrateAaRoomActivitiesColumn(defaultStore());
 seedAaRoomIfEmpty();

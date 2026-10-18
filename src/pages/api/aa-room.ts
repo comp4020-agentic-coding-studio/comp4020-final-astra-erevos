@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { getAaRoom, reportAaRoomStatus } from "../../lib/aa-room.ts";
+import { canonicalizeActivities, getAaRoom, reportAaRoomStatus } from "../../lib/aa-room.ts";
 import { COOKIE_NAME, resolveSession } from "../../lib/sessions.ts";
 import { logAaRoomReportOutcome, logAaRoomReportRejected } from "../../lib/log.ts";
 import { isSafePositiveInteger } from "../../lib/validation.ts";
@@ -23,7 +23,7 @@ export const GET: APIRoute = () => json(getAaRoom(), 200);
 
 interface ReportBody {
   occupancy?: string;
-  activity?: string | null;
+  activities?: unknown;
   // Accepted only so PATCH can detect and reject its presence explicitly
   // — see notes/adr/0002-identity-and-permissions.md's anti-impersonation
   // contract, which this route inherits unchanged (ADR 0003, Decision 4).
@@ -38,8 +38,14 @@ function isReportableOccupancy(value: string | undefined): value is ReportableAa
   return VALID_REPORTABLE_AA_ROOM_OCCUPANCIES.includes(value as ReportableAaRoomOccupancy);
 }
 
-function isValidActivity(value: string | null | undefined): value is AaRoomActivity | null | undefined {
-  return value == null || VALID_AA_ROOM_ACTIVITIES.includes(value as AaRoomActivity);
+// Shape-only: every element is one of the five valid activity strings.
+// Does not check dedup, occupied-requires-nonempty, or event-exclusivity
+// — those are judged against the CANONICALIZED array further down (see
+// notes/adr/0003-aa-room-live-state.md, "Validity constraints": a client
+// sending a duplicate or out-of-order array is judged on its actual
+// resulting set, not its literal submitted form).
+function isValidActivitiesArray(value: unknown): value is AaRoomActivity[] {
+  return Array.isArray(value) && value.every((v) => VALID_AA_ROOM_ACTIVITIES.includes(v as AaRoomActivity));
 }
 
 // Crit 10's identity model, unchanged for AA Room: the actor is resolved
@@ -66,18 +72,35 @@ export const PATCH: APIRoute = async ({ request, cookies }) => {
     logAaRoomReportRejected({ actor: session.pseudonym, reason: "client-actor-claim" });
     return json({ error: "reporterId is server-controlled" }, 400);
   }
-  if (body.activity !== undefined && !isValidActivity(body.activity)) {
-    return json({ error: `activity must be one of: ${VALID_AA_ROOM_ACTIVITIES.join(", ")}, or omitted` }, 400);
+  if (body.activities !== undefined && !isValidActivitiesArray(body.activities)) {
+    return json(
+      { error: `activities must be an array containing only: ${VALID_AA_ROOM_ACTIVITIES.join(", ")}` },
+      400,
+    );
   }
-  if (body.activity != null && body.occupancy !== "occupied") {
-    return json({ error: "activity may only be set when occupancy is occupied" }, 400);
+
+  // Canonicalize (dedup + fixed order) BEFORE every check below that
+  // judges the resulting set — see notes/adr/0003-aa-room-live-state.md,
+  // "Validity constraints," and canonicalizeActivities()'s own note on
+  // why this must happen before, not after, occupied/event-exclusivity
+  // validation.
+  const activities = canonicalizeActivities((body.activities as AaRoomActivity[] | undefined) ?? []);
+
+  if (body.occupancy === "empty" && activities.length > 0) {
+    return json({ error: "activities must be empty when occupancy is empty" }, 400);
+  }
+  if (body.occupancy === "occupied" && activities.length === 0) {
+    return json({ error: "at least one activity is required when occupancy is occupied" }, 400);
+  }
+  if (activities.includes("event") && activities.length > 1) {
+    return json({ error: "event cannot be combined with other activities" }, 400);
   }
   if (!isSafePositiveInteger(body.ifVersion)) {
     return json({ error: "ifVersion must be the safe positive integer version you last saw" }, 400);
   }
 
   const result = reportAaRoomStatus(
-    { occupancy: body.occupancy, activity: body.activity ?? null, reporterId: session.id },
+    { occupancy: body.occupancy, activities, reporterId: session.id },
     body.ifVersion,
   );
 

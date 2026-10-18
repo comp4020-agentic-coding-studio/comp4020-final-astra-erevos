@@ -42,10 +42,11 @@ export interface Machine {
 
 // AA Room — Toad Live's second facility. See
 // notes/adr/0003-aa-room-live-state.md: occupancy is the required primary
-// field, activity a single optional enrichment, deliberately not the
-// Machine shape above (no per-location rows, no expected-end-time concept
-// — nobody can read an objective "end time" off a common-room hangout the
-// way a washer's display gives one off a wash cycle).
+// field, activities a set of independent, optionally-combinable tags
+// (v2's design correction — see the ADR), deliberately not the Machine
+// shape above (no per-location rows, no expected-end-time concept — nobody
+// can read an objective "end time" off a common-room hangout the way a
+// washer's display gives one off a wash cycle).
 export type AaRoomOccupancy = "empty" | "occupied" | "unknown";
 export const VALID_AA_ROOM_OCCUPANCIES: readonly AaRoomOccupancy[] = [
   "empty",
@@ -64,17 +65,39 @@ export const VALID_REPORTABLE_AA_ROOM_OCCUPANCIES: readonly ReportableAaRoomOccu
   "occupied",
 ];
 
-export type AaRoomActivity = "tv" | "pool" | "table-tennis" | "event";
+// v2 (see notes/adr/0003-aa-room-live-state.md, "Design correction, v2"):
+// AA Room's activities are independent and can co-occur — a single
+// optional `activity` field couldn't represent "TV on while a different
+// group plays pool," which is the room's ordinary case, not an edge
+// case. "hanging-out" is new: it names what v1 left as unset/null
+// ("occupied, nothing specific"), because once activities combine,
+// "occupied" must always carry at least one tag — there's no longer a
+// value-free way to mean "present, nothing louder going on." "event"
+// remains the one exception: a formal, dorm-run activity that excludes
+// everything else, enforced as array-exclusivity rather than a plain
+// member of the set (see VALID_AA_ROOM_ACTIVITIES's order below, which
+// is also the canonical sort/dedup order every stored and returned
+// `activities` array is normalized into).
+export type AaRoomActivity = "tv" | "pool" | "table-tennis" | "hanging-out" | "event";
 export const VALID_AA_ROOM_ACTIVITIES: readonly AaRoomActivity[] = [
   "tv",
   "pool",
   "table-tennis",
+  "hanging-out",
   "event",
 ];
 
 export interface AaRoomState {
   occupancy: AaRoomOccupancy;
-  activity: AaRoomActivity | null;
+  // Canonically deduplicated and ordered per VALID_AA_ROOM_ACTIVITIES —
+  // never the raw, as-submitted order a client's PATCH body carried.
+  // empty/unknown occupancy always means activities is []; occupied
+  // always means at least one tag; "event" always means exactly
+  // ["event"] — see notes/adr/0003-aa-room-live-state.md's validity
+  // constraints. The figure count the 3D scene shows for any of these is
+  // purely decorative — never derived from or fed back into this array,
+  // and never a real headcount.
+  activities: AaRoomActivity[];
   confirmedAt: number | null;
   // Server-owned, starts at 1 — the exact same contract as Machine.version
   // above (CLAUDE.md, ADR 0001): every persisted mutation increments it

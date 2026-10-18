@@ -47,22 +47,22 @@ it("an occupancy report persists across an independent later request", async () 
   const patch = await fetch(new URL("/api/aa-room", baseUrl), {
     method: "PATCH",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ occupancy: "occupied", activity: "pool", ifVersion }),
+    body: JSON.stringify({ occupancy: "occupied", activities: ["pool"], ifVersion }),
   });
   expect(patch.status).toBe(200);
   const patched = await patch.json();
   expect(patched.occupancy).toBe("occupied");
-  expect(patched.activity).toBe("pool");
+  expect(patched.activities).toEqual(["pool"]);
   expect(patched.freshness).toBe("fresh");
 
   const after = await fetch(new URL("/api/aa-room", baseUrl));
   expect(after.status).toBe(200);
   const body = await after.json();
   expect(body.occupancy).toBe("occupied");
-  expect(body.activity).toBe("pool");
+  expect(body.activities).toEqual(["pool"]);
 });
 
-it("reporting empty clears any previously set activity", async () => {
+it("reporting empty clears any previously set activities", async () => {
   const ifVersion = await currentVersion();
   const patch = await fetch(new URL("/api/aa-room", baseUrl), {
     method: "PATCH",
@@ -72,7 +72,99 @@ it("reporting empty clears any previously set activity", async () => {
   expect(patch.status).toBe(200);
   const body = await patch.json();
   expect(body.occupancy).toBe("empty");
-  expect(body.activity).toBeNull();
+  expect(body.activities).toEqual([]);
+});
+
+// v2 (notes/adr/0003-aa-room-live-state.md, "Design correction, v2"):
+// tv/pool/table-tennis/hanging-out are independent and can co-occur —
+// this is the central fact the correction exists to represent.
+it("accepts and round-trips multiple simultaneous non-event activities", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: ["table-tennis", "tv", "hanging-out"], ifVersion }),
+  });
+  expect(patch.status).toBe(200);
+  const body = await patch.json();
+  // Canonical order (tv, pool, table-tennis, hanging-out, event) — not
+  // the order submitted.
+  expect(body.activities).toEqual(["tv", "table-tennis", "hanging-out"]);
+
+  const after = await fetch(new URL("/api/aa-room", baseUrl));
+  expect((await after.json()).activities).toEqual(["tv", "table-tennis", "hanging-out"]);
+});
+
+it("deduplicates a repeated activity and canonically orders the result", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: ["pool", "tv", "pool", "tv"], ifVersion }),
+  });
+  expect(patch.status).toBe(200);
+  const body = await patch.json();
+  expect(body.activities).toEqual(["tv", "pool"]);
+});
+
+it("rejects occupied with an empty activities array — at least one activity is required", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: [], ifVersion }),
+  });
+  expect(patch.status).toBe(400);
+
+  const after = await fetch(new URL("/api/aa-room", baseUrl));
+  expect((await after.json()).version).toBe(ifVersion);
+});
+
+it("rejects empty occupancy carrying a non-empty activities array", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "empty", activities: ["hanging-out"], ifVersion }),
+  });
+  expect(patch.status).toBe(400);
+});
+
+it("rejects event combined with another activity, even after dedup", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: ["event", "pool"], ifVersion }),
+  });
+  expect(patch.status).toBe(400);
+
+  const after = await fetch(new URL("/api/aa-room", baseUrl));
+  expect((await after.json()).version).toBe(ifVersion);
+});
+
+it("accepts event alone", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: ["event"], ifVersion }),
+  });
+  expect(patch.status).toBe(200);
+  const body = await patch.json();
+  expect(body.activities).toEqual(["event"]);
+});
+
+it("accepts a duplicated event entry as the valid exclusive set, not a rejection", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: ["event", "event"], ifVersion }),
+  });
+  expect(patch.status).toBe(200);
+  const body = await patch.json();
+  expect(body.activities).toEqual(["event"]);
 });
 
 it("rejects an occupancy value outside empty/occupied/unknown", async () => {
@@ -103,12 +195,22 @@ it("rejects a client reporting occupancy unknown, even though it's a valid store
   expect(body.version).toBe(ifVersion);
 });
 
-it("rejects an activity tag outside the four named values", async () => {
+it("rejects an activities array containing a tag outside the five named values", async () => {
   const ifVersion = await currentVersion();
   const patch = await fetch(new URL("/api/aa-room", baseUrl), {
     method: "PATCH",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ occupancy: "occupied", activity: "ping-pong", ifVersion }),
+    body: JSON.stringify({ occupancy: "occupied", activities: ["ping-pong"], ifVersion }),
+  });
+  expect(patch.status).toBe(400);
+});
+
+it("rejects activities that isn't an array", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: "tv", ifVersion }),
   });
   expect(patch.status).toBe(400);
 });
@@ -118,7 +220,7 @@ it("rejects an activity tag reported alongside empty", async () => {
   const patch = await fetch(new URL("/api/aa-room", baseUrl), {
     method: "PATCH",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ occupancy: "empty", activity: "tv", ifVersion }),
+    body: JSON.stringify({ occupancy: "empty", activities: ["tv"], ifVersion }),
   });
   expect(patch.status).toBe(400);
 });
@@ -140,7 +242,7 @@ it("a stale ifVersion is rejected 409 with the current canonical state, not sile
   const bump = await fetch(new URL("/api/aa-room", baseUrl), {
     method: "PATCH",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ occupancy: "occupied", activity: "tv", ifVersion: staleVersion }),
+    body: JSON.stringify({ occupancy: "occupied", activities: ["tv"], ifVersion: staleVersion }),
   });
   expect(bump.status).toBe(200);
 
@@ -152,7 +254,7 @@ it("a stale ifVersion is rejected 409 with the current canonical state, not sile
   expect(conflicting.status).toBe(409);
   const body = await conflicting.json();
   expect(body.current.occupancy).toBe("occupied");
-  expect(body.current.activity).toBe("tv");
+  expect(body.current.activities).toEqual(["tv"]);
 });
 
 it("rejects a PATCH with no session before the body is even parsed", async () => {
@@ -193,7 +295,7 @@ const DELIVERY_MARGIN_MS = 1_300;
 
 interface AaRoomEvent {
   occupancy: string;
-  activity: string | null;
+  activities: string[];
   confirmedAt: number | null;
   version: number;
   freshness: string | null;
@@ -335,13 +437,13 @@ it("a resident report reaches an already-open SSE session as event: aa-room", as
   const patch = fetch(new URL("/api/aa-room", baseUrl), {
     method: "PATCH",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ occupancy: "occupied", activity: "pool", ifVersion }),
+    body: JSON.stringify({ occupancy: "occupied", activities: ["pool"], ifVersion }),
   });
 
   const event = await stream.nextAaRoomEvent(DELIVERY_MARGIN_MS);
   expect(event).not.toBeNull();
   expect(event!.occupancy).toBe("occupied");
-  expect(event!.activity).toBe("pool");
+  expect(event!.activities).toEqual(["pool"]);
   expect(typeof event!.version).toBe("number");
 
   expect((await patch).status).toBe(200);
@@ -369,7 +471,7 @@ it("a rejected PATCH (stale ifVersion / 409) produces no aa-room event", async (
   const conflictingPatch = await fetch(new URL("/api/aa-room", baseUrl), {
     method: "PATCH",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ occupancy: "occupied", activity: "tv", ifVersion: beforeBump }), // already stale
+    body: JSON.stringify({ occupancy: "occupied", activities: ["tv"], ifVersion: beforeBump }), // already stale
   });
   expect(conflictingPatch.status).toBe(409);
 

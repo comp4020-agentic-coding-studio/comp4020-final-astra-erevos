@@ -89,11 +89,12 @@ const AA_ROOM_STATUS_META: Record<AaRoomOccupancy, { label: string; icon: string
   unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
 };
 
-const AA_ROOM_ACTIVITY_META: Record<AaRoomActivity, { label: string }> = {
-  tv: { label: "TV" },
-  pool: { label: "Pool" },
-  "table-tennis": { label: "Table tennis" },
-  event: { label: "Event" },
+const AA_ROOM_ACTIVITY_META: Record<AaRoomActivity, { label: string; checkboxLabel: string }> = {
+  tv: { label: "TV", checkboxLabel: "Watching TV" },
+  pool: { label: "Pool", checkboxLabel: "Playing pool" },
+  "table-tennis": { label: "Table tennis", checkboxLabel: "Table tennis" },
+  "hanging-out": { label: "Hanging out", checkboxLabel: "Hanging out" },
+  event: { label: "Event", checkboxLabel: "Hall event" },
 };
 
 // Mirrors confirmedLabel() above exactly — a separate copy, not a shared
@@ -919,8 +920,102 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       .aa-room-freshness.aa-freshness--stale { color: var(--warm); }
       .aa-room-freshness.aa-freshness--unknown { color: var(--ink-muted); font-style: italic; }
 
+      /* Always visible — no details/summary click-to-reveal. AA Room has
+         exactly one reportable thing, unlike Laundry's ten separate
+         machine cards where collapsing each genuinely cuts clutter;
+         hiding AA Room's only form bought nothing but an extra click. */
       .aa-room-report {
-        margin-top: 0.5rem;
+        margin-top: 1rem;
+      }
+      .aa-room-report-label {
+        margin: 0 0 0.5rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--ink-muted);
+      }
+
+      /* v2's occupancy/activities controls — toggle-pill buttons in the
+         same visual language as .facility-tab/.block-tab elsewhere on
+         this page, not a native <select>/checkbox list. Each is a real
+         <input type="radio"|"checkbox"> for correct semantics/keyboard
+         behaviour, but visually hidden in favour of its sibling <span>,
+         styled as the pill — the same "real control, custom skin"
+         technique a styled checkbox/radio always needs, since neither
+         can be given a pill's padding/background directly in every
+         browser. */
+      .aa-room-toggle-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin: 0 0 0.75rem;
+        padding: 0;
+        border: none;
+      }
+      .aa-room-toggle {
+        position: relative;
+        display: inline-flex;
+      }
+      /* Overrides form.report-form's generic `input` rule (border/padding/
+         width:9rem, meant for Laundry's free-text minutes field) — needs
+         to win on specificity, not just come later, since source order
+         alone isn't reliable once this file's rules get reorganized. */
+      form.report-form .aa-room-toggle input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        opacity: 0;
+        cursor: pointer;
+      }
+      .aa-room-toggle span {
+        font-size: 0.82rem;
+        font-weight: 600;
+        padding: 0.45rem 0.9rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--ink-secondary);
+        white-space: nowrap;
+        transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .aa-room-toggle span { transition: none; }
+      }
+      .aa-room-toggle:hover span {
+        background: var(--surface-alt);
+      }
+      .aa-room-toggle input:checked + span {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--surface);
+      }
+      .aa-room-toggle input:checked:hover + span {
+        background: var(--accent-strong);
+        border-color: var(--accent-strong);
+      }
+      .aa-room-toggle input:focus-visible + span {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      /* Disabled (via syncActivityControls() in the report script, e.g.
+         the other four activities while "Hall event" is checked) reads
+         as a real constraint, not a layout glitch. */
+      .aa-room-toggle input:disabled {
+        cursor: not-allowed;
+      }
+      .aa-room-toggle input:disabled + span {
+        color: var(--ink-muted);
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .aa-room-toggle input:disabled:checked + span {
+        opacity: 0.75;
       }
     </style>
 
@@ -1174,14 +1269,22 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             </section>
           </div>
 
-          {/* AA Room's left pane for this stage: a plain placeholder, not a
-              3D scene — that's explicitly later work (see
-              notes/adr/0003-aa-room-live-state.md's own "what this ADR
-              does not decide"). Hidden by default; the facility-tab
-              script below shows it only when AA Room is selected. */}
+          {/* AA Room's left pane — Stage 4: a real 3D diorama, same
+              cutaway low-poly language as Laundry's, mounted onto the
+              ONE shared renderer (src/lib/hall-view/renderer-host.ts),
+              never a second WebGLRenderer. aria-hidden for the same
+              reason Laundry's hall-view is: every fact it shows is
+              already stated as accessible text in the AA Room panel
+              below. Hidden by default; the facility-tab script shows it
+              only when AA Room is selected. data-aa-room is the same
+              initial-state-from-this-page-load payload the AA Room
+              panel's own script already reads from the info panel
+              below — read once here too so the 3D mount has the real
+              starting state without a second fetch. */}
           <div class="facility-view" data-facility="aa-room" hidden>
-            <section class="hall-view aa-room-placeholder" aria-hidden="true">
-              <p>AA Room visual coming next.</p>
+            <section class="hall-view" aria-hidden="true" data-aa-room={JSON.stringify(aaRoom)}>
+              <div class="hall-view-canvas" id="aa-room-canvas"></div>
+              <p class="hall-view-caption">Toad Hall — AA Room, live</p>
             </section>
           </div>
         </div>
@@ -1316,14 +1419,17 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             <span class="aa-room-status-icon" aria-hidden="true">{AA_ROOM_STATUS_META[aaRoom.occupancy].icon}</span>
             <span class="aa-room-status-label">{AA_ROOM_STATUS_META[aaRoom.occupancy].label}</span>
           </div>
-          {/* Always rendered, hidden when there's no activity to show — same
-              "stable node, toggled, never built from scratch" shape as
-              Laundry's .remaining paragraph. Never a hardcoded fallback
-              label when activity is unset (ADR 0003: unset activity means
-              "nothing specific to report," not a value to invent a label
-              for). */}
-          <p class="aa-room-activity" hidden={!aaRoom.activity}>
-            {aaRoom.activity ? AA_ROOM_ACTIVITY_META[aaRoom.activity].label : ""}
+          {/* Always rendered, hidden when there are no activities to show —
+              same "stable node, toggled, never built from scratch" shape as
+              Laundry's .remaining paragraph. v2: activities is a list, so
+              this joins every currently-reported tag's label rather than
+              showing a single value (notes/adr/0003-aa-room-live-state.md,
+              "Design correction, v2"). Never a hardcoded fallback label
+              when activities is empty — an empty array there means
+              "nothing specific to report," not a gap to invent a label
+              for. */}
+          <p class="aa-room-activity" hidden={aaRoom.activities.length === 0}>
+            {aaRoom.activities.map((activity) => AA_ROOM_ACTIVITY_META[activity].label).join(", ")}
           </p>
           <span class="confirmed aa-room-confirmed">{aaRoomConfirmedLabel(aaRoom.confirmedAt)}</span>
           {(() => {
@@ -1336,33 +1442,71 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           })()}
         </section>
 
-        <details class="report aa-room-report">
-          <summary>Update status</summary>
+        {/* AA Room has exactly one reportable thing — unlike Laundry's ten
+            separate machine cards, where collapsing each one behind
+            "Update status" cuts real clutter, hiding AA Room's only form
+            behind a click bought nothing but an extra click. Always
+            visible, and styled as the same pill-button language as
+            .facility-tab/.block-tab elsewhere on this page, rather than a
+            native <select>/checkbox list — see .aa-room-toggle-group
+            below. */}
+        <div class="report aa-room-report">
+          <p class="aa-room-report-label">Update status</p>
           {/* Only empty/occupied are ever offered — unknown is never a
               reportable value (ADR 0003, Decision 2): it's what seeding or
               decay produces, never something a resident observes and
               reports. data-version is kept in sync with every canonical
               state this panel receives, the same way Laundry's
-              .report-form does. */}
+              .report-form does. Occupancy is two radios, not a <select>,
+              specifically so it can be styled as the same toggle-pill
+              group as the activities below it — a native select can't be
+              restyled into pills across browsers the way a radio+label
+              pair can. */}
           <form class="report-form aa-room-report-form" data-version={aaRoom.version}>
-            <select name="occupancy" aria-label="AA Room status">
-              <option value="empty">Empty</option>
-              <option value="occupied">Occupied</option>
-            </select>
-            {/* Hidden whenever occupancy isn't "occupied" — the report
-                script below clears its value AND hides it together, so an
-                empty report can never carry a stale activity selection
-                left over from a previous occupied one. */}
-            <select name="activity" aria-label="What's happening (optional)" class="aa-room-activity-select" hidden>
-              <option value="">Unspecified</option>
-              <option value="tv">TV</option>
-              <option value="pool">Pool</option>
-              <option value="table-tennis">Table tennis</option>
-              <option value="event">Event</option>
-            </select>
+            {/* Pre-checked from this page load's real occupancy, same
+                "initial render reflects canonical state, not a blank
+                form" discipline as every other field in this panel —
+                "unknown" (never a reportable value, Decision 2) simply
+                leaves neither pill checked rather than guessing one. */}
+            <fieldset class="aa-room-toggle-group aa-room-occupancy" aria-label="AA Room status">
+              <label class="aa-room-toggle">
+                <input type="radio" name="occupancy" value="empty" checked={aaRoom.occupancy === "empty"} />
+                <span>Empty</span>
+              </label>
+              <label class="aa-room-toggle">
+                <input type="radio" name="occupancy" value="occupied" checked={aaRoom.occupancy === "occupied"} />
+                <span>Occupied</span>
+              </label>
+            </fieldset>
+            {/* v2: a multi-select toggle group replaces the single
+                activity <select> — tv/pool/table-tennis/hanging-out can be
+                toggled in any combination; "Hall event" is mutually
+                exclusive with the other four (the report script's
+                syncActivityControls() enforces this both ways: checking
+                Event disables the other four, checking any of the other
+                four disables Event — see notes/adr/0003-aa-room-live-
+                state.md, "Validity constraints"). Disabled together
+                whenever occupancy isn't "occupied", same "never carry a
+                stale selection into the wrong kind of report" discipline
+                the old single-select had. Pre-checked from the real
+                current activities for the same reason occupancy is. */}
+            <fieldset class="aa-room-toggle-group aa-room-activities" aria-label="What's happening">
+              {(["tv", "pool", "table-tennis", "hanging-out", "event"] as const).map((activity) => (
+                <label class="aa-room-toggle">
+                  <input
+                    type="checkbox"
+                    name="activities"
+                    value={activity}
+                    checked={aaRoom.activities.includes(activity)}
+                    disabled={aaRoom.occupancy !== "occupied"}
+                  />
+                  <span>{AA_ROOM_ACTIVITY_META[activity].checkboxLabel}</span>
+                </label>
+              ))}
+            </fieldset>
             <button type="submit">Report</button>
           </form>
-        </details>
+        </div>
       </div>
         </div>
       </div>
@@ -1386,6 +1530,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         it owns none of their state and neither of them needs to know
         this one exists. */}
     <script>
+      // Stage 4 — notifies whichever facility's 3D mount script
+      // registered interest (src/lib/hall-view/facility-switch.ts) every
+      // time a facility tab is selected, including the very first
+      // selection a resident ever makes of a given facility. This is
+      // what lets AA Room's 3D scene be built lazily, on first switch to
+      // it, rather than eagerly at page load while hidden — see that
+      // module's own note, and the AA Room mount script further down.
+      import { selectHallFacility } from "../lib/hall-view/facility-switch.ts";
+
       const facilityTabs = document.querySelectorAll<HTMLButtonElement>(".facility-tab[data-facility]");
       const facilityViews = document.querySelectorAll<HTMLElement>(".facility-view[data-facility]");
 
@@ -1397,6 +1550,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           if (tab.dataset.facility === facility) tab.setAttribute("aria-current", "page");
           else tab.removeAttribute("aria-current");
         }
+        selectHallFacility(facility);
       }
 
       facilityTabs.forEach((tab) => {
@@ -1406,6 +1560,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
 
     <script>
       import { mount } from "../lib/hall-view/scene.ts";
+      import { activateFacility } from "../lib/hall-view/renderer-host.ts";
+      import { onFacilitySelected } from "../lib/hall-view/facility-switch.ts";
       import type { Machine } from "../lib/types.ts";
 
       // Stage 7 — block tabs: a pure VIEW filter over the existing
@@ -1471,6 +1627,18 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             highlightedCard = card;
             card.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion ? "auto" : "smooth" });
           });
+          // Stage 4 — Laundry is already built and active from the
+          // mount() call just above (it's the default-visible facility
+          // tab), so switching BACK to it never needs a rebuild — only
+          // the cheap canvas-reparent + resize activateFacility() already
+          // does. The shared renderer/canvas was briefly owned by AA
+          // Room's container while that tab was selected; this is what
+          // moves it back into Laundry's own container, with Laundry's
+          // own camera/framing completely unchanged by that round trip
+          // (see renderer-host.ts: activating a facility never rebuilds
+          // its scene or camera, only resizes against the now-visible
+          // container's real dimensions).
+          onFacilitySelected("laundry", () => activateFacility("laundry", container));
         } catch {
           // WebGL unavailable, or anything else went wrong building the
           // scene — the dashboard above and below is a complete
@@ -1480,6 +1648,58 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           container.remove();
           section.querySelector(".hall-view-caption")?.remove();
         }
+      }
+    </script>
+
+    {/* Stage 4 — AA Room's own 3D mount, a separate script block from
+        Laundry's above (each its own module scope), coordinating through
+        facility-switch.ts and renderer-host.ts the same way the AA Room
+        panel script coordinates with Laundry's dashboard script through
+        live-stream.ts. Built LAZILY: mountAaRoom() only runs the first
+        time a resident actually selects the AA Room tab (via
+        onFacilitySelected below), not eagerly at page load while hidden
+        — building a Three.js scene for a container that's display:none
+        would read a zero-sized container and, more importantly, would
+        immediately steal the one shared canvas away from Laundry's own
+        visible container before any resident ever asked for AA Room.
+        Every selection after the first is just the same cheap
+        activateFacility() reparent Laundry's own re-selection uses. */}
+    <script>
+      import { mountAaRoom } from "../lib/hall-view/scene.ts";
+      import { activateFacility } from "../lib/hall-view/renderer-host.ts";
+      import { onFacilitySelected } from "../lib/hall-view/facility-switch.ts";
+
+      interface AaRoomSceneState {
+        occupancy: "empty" | "occupied" | "unknown";
+        activities: ("tv" | "pool" | "table-tennis" | "hanging-out" | "event")[];
+        confirmedAt: number | null;
+        version: number;
+        freshness: "fresh" | "stale" | null;
+      }
+
+      const aaRoomContainer = document.getElementById("aa-room-canvas");
+      const aaRoomSection = aaRoomContainer?.closest<HTMLElement>(".hall-view") ?? null;
+
+      if (aaRoomContainer && aaRoomSection && aaRoomSection.dataset.aaRoom) {
+        let built = false;
+        onFacilitySelected("aa-room", () => {
+          if (built) {
+            activateFacility("aa-room", aaRoomContainer);
+            return;
+          }
+          built = true;
+          try {
+            const initial = JSON.parse(aaRoomSection.dataset.aaRoom!) as AaRoomSceneState;
+            mountAaRoom(aaRoomContainer, initial);
+          } catch {
+            // Same fallback as Laundry's own mount — WebGL unavailable,
+            // or anything else went wrong building the scene. The AA
+            // Room panel below is a complete experience on its own
+            // either way.
+            aaRoomContainer.remove();
+            aaRoomSection.querySelector(".hall-view-caption")?.remove();
+          }
+        });
       }
     </script>
 
@@ -1706,12 +1926,23 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         Laundry's own script observes, no second EventSource. */}
     <script>
       import { onAaRoomEvent, onOpen } from "../lib/live-stream.ts";
+      // Stage 4 — the 3D scene's only hook into AA Room's live updates,
+      // the exact same cross-script-block sharing Laundry's own dashboard
+      // script already relies on for applyMachineToScene (ES modules are
+      // singletons keyed by URL, so this reaches the same scene.ts
+      // module instance the separate AA Room mount script below also
+      // imports — whichever one happens to have actually built the 3D
+      // scene, since this call is a safe no-op via scene.ts's own
+      // mountedAaRoomScenes Set when nothing has mounted yet, e.g. a
+      // resident whose current tab is Laundry and has never switched to
+      // AA Room at all).
+      import { applyAaRoomStateToScene } from "../lib/hall-view/scene.ts";
 
       type AaRoomOccupancy = "empty" | "occupied" | "unknown";
-      type AaRoomActivity = "tv" | "pool" | "table-tennis" | "event";
+      type AaRoomActivity = "tv" | "pool" | "table-tennis" | "hanging-out" | "event";
       interface AaRoomState {
         occupancy: AaRoomOccupancy;
-        activity: AaRoomActivity | null;
+        activities: AaRoomActivity[];
         confirmedAt: number | null;
         version: number;
         freshness: "fresh" | "stale" | null;
@@ -1726,6 +1957,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         tv: { label: "TV" },
         pool: { label: "Pool" },
         "table-tennis": { label: "Table tennis" },
+        "hanging-out": { label: "Hanging out" },
         event: { label: "Event" },
       };
 
@@ -1754,15 +1986,39 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       const confirmedEl = panel?.querySelector<HTMLElement>(".aa-room-confirmed");
       const freshnessEl = panel?.querySelector<HTMLElement>(".aa-room-freshness");
       const form = panel?.querySelector<HTMLFormElement>(".aa-room-report-form");
-      const occupancySelect = form?.elements.namedItem("occupancy") as HTMLSelectElement | null;
-      const activitySelect = form?.querySelector<HTMLSelectElement>(".aa-room-activity-select");
+      // v2: occupancy is two radio pills, not a <select> — a native
+      // select can't be restyled into the same toggle-pill language as
+      // .facility-tab/.block-tab elsewhere on this page, across browsers,
+      // the way a radio+label pair can (see .aa-room-toggle CSS). Queried
+      // as a plain array, same reasoning as activityCheckboxes below.
+      const occupancyRadios = form
+        ? Array.from(form.querySelectorAll<HTMLInputElement>('input[name="occupancy"]'))
+        : [];
+      function occupancyValue(): string | undefined {
+        return occupancyRadios.find((r) => r.checked)?.value;
+      }
+      // v2: a checkbox per activity, replacing the single <select> —
+      // queried as a live NodeList-turned-array so syncActivityControls()
+      // can reason about "all of them" and "the event one specifically"
+      // without re-querying the DOM on every call.
+      const activityCheckboxes = form
+        ? Array.from(form.querySelectorAll<HTMLInputElement>('input[name="activities"]'))
+        : [];
+      const eventCheckbox = activityCheckboxes.find((cb) => cb.value === "event") ?? null;
+      const nonEventCheckboxes = activityCheckboxes.filter((cb) => cb.value !== "event");
 
-      // Applies AA Room's canonical state to the panel — used for the
-      // initial server-rendered state (called once below), and again for
-      // whatever this browser's own PATCH response hands back (success or
-      // 409 conflict alike). Never reached by any other session's report
-      // yet — that's Stage 3's SSE wiring.
+      // Applies AA Room's canonical state to BOTH the panel and the 3D
+      // scene — used for the initial server-rendered state (called once
+      // below), this browser's own PATCH response (success or 409
+      // conflict alike), and any other session's push over SSE. Mirrors
+      // Laundry's own applyMachineUpdate(), which calls
+      // applyMachineToScene() as its first line for exactly the same
+      // reason: one canonical update path feeding both the dashboard and
+      // the 3D view, so they can never disagree about what AA Room's
+      // state currently is.
       function applyAaRoomUpdate(room: AaRoomState): void {
+        applyAaRoomStateToScene(room);
+
         if (!statusEl || !statusIconEl || !statusLabelEl || !activityEl || !confirmedEl || !freshnessEl || !form) {
           return;
         }
@@ -1772,9 +2028,9 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         statusIconEl.textContent = meta.icon;
         statusLabelEl.textContent = meta.label;
 
-        if (room.activity) {
+        if (room.activities.length > 0) {
           activityEl.hidden = false;
-          activityEl.textContent = ACTIVITY_META[room.activity].label;
+          activityEl.textContent = room.activities.map((activity) => ACTIVITY_META[activity].label).join(", ");
         } else {
           activityEl.hidden = true;
           activityEl.textContent = "";
@@ -1795,38 +2051,80 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         form.dataset.version = String(room.version);
       }
 
-      // Keeps the activity <select> in sync with the occupancy <select> —
-      // shown and usable only when "Occupied" is chosen; hidden AND reset
-      // to "Unspecified" together whenever it isn't, so an "Empty" report
-      // can never silently carry a leftover activity value the resident
-      // never saw or chose for this submission (see the ADR, Decision 1:
-      // activity only ever means anything alongside "occupied").
-      function syncActivityVisibility(): void {
-        if (!occupancySelect || !activitySelect) return;
-        const showActivity = occupancySelect.value === "occupied";
-        activitySelect.hidden = !showActivity;
-        if (!showActivity) activitySelect.value = "";
+      // Recomputes EVERY checkbox's checked/disabled state from the
+      // current full selection, every time anything changes — never a
+      // one-way "disable on check" with no corresponding re-enable path,
+      // which would leave a checkbox permanently stuck disabled after its
+      // triggering condition no longer holds. See
+      // notes/adr/0003-aa-room-live-state.md, "Validity constraints":
+      // - occupancy "empty" -> every checkbox unchecked AND disabled.
+      // - occupancy "occupied" + Event checked -> the other four
+      //   unchecked AND disabled (Event stays enabled/checked).
+      // - occupancy "occupied" + Event unchecked -> the other four
+      //   re-enabled (never left disabled from an earlier Event
+      //   selection that's since been undone).
+      // - occupancy "occupied" + any of the other four checked -> Event
+      //   unchecked AND disabled.
+      // - occupancy "occupied" + all of the other four unchecked -> Event
+      //   re-enabled (same "no stuck-disabled state" guarantee).
+      function syncActivityControls(): void {
+        if (occupancyRadios.length === 0 || activityCheckboxes.length === 0) return;
+        const occupied = occupancyValue() === "occupied";
+
+        if (!occupied) {
+          for (const cb of activityCheckboxes) {
+            cb.checked = false;
+            cb.disabled = true;
+          }
+          return;
+        }
+
+        const eventChecked = eventCheckbox?.checked ?? false;
+        const anyNonEventChecked = nonEventCheckboxes.some((cb) => cb.checked);
+
+        if (eventCheckbox) eventCheckbox.disabled = anyNonEventChecked;
+        for (const cb of nonEventCheckboxes) cb.disabled = eventChecked;
       }
 
       if (panel) {
         const initial = JSON.parse(panel.dataset.aaRoom!) as AaRoomState;
         applyAaRoomUpdate(initial);
 
-        occupancySelect?.addEventListener("change", syncActivityVisibility);
-        syncActivityVisibility();
+        for (const radio of occupancyRadios) radio.addEventListener("change", syncActivityControls);
+
+        // Enforces Event's mutual exclusivity the moment a resident
+        // actually checks something — checking Event clears the other
+        // four (and vice versa) — before syncActivityControls() computes
+        // the resulting disabled state from that now-updated selection.
+        // Both directions are needed: a one-way "disable the others"
+        // alone wouldn't un-disable them again once Event is unchecked,
+        // which is exactly syncActivityControls()'s own job on every
+        // call, not just this one.
+        for (const cb of activityCheckboxes) {
+          cb.addEventListener("change", () => {
+            if (cb === eventCheckbox && cb.checked) {
+              for (const other of nonEventCheckboxes) other.checked = false;
+            } else if (cb !== eventCheckbox && cb.checked && eventCheckbox) {
+              eventCheckbox.checked = false;
+            }
+            syncActivityControls();
+          });
+        }
+
+        syncActivityControls();
 
         // Stage 3 — a push from ANY session's report or decay transition,
         // over the page's one shared SSE connection. applyAaRoomUpdate()
         // only ever writes the display elements (status/activity-label/
         // confirmed/freshness/version) and never touches
-        // occupancySelect.value or activitySelect.value, so a resident
-        // mid-way through choosing their own report is never overwritten
-        // by someone else's — the same property Laundry's own
-        // applyMachineUpdate() already has for its report form, not a new
-        // rule invented here. Deliberately NOT calling
-        // syncActivityVisibility() here: that function reacts to this
-        // browser's own occupancySelect value, which an incoming push
-        // never changes, so there's nothing for it to resync.
+        // occupancySelect.value or any activity checkbox's checked state,
+        // so a resident mid-way through choosing their own report is
+        // never overwritten by someone else's — the same property
+        // Laundry's own applyMachineUpdate() already has for its report
+        // form, not a new rule invented here. Deliberately NOT calling
+        // syncActivityControls() here: that function reacts to this
+        // browser's own occupancySelect/checkbox state, which an incoming
+        // push never changes, so there's nothing for it to resync.
         onAaRoomEvent((room) => {
           applyAaRoomUpdate(room);
         });
@@ -1843,19 +2141,29 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
 
         form?.addEventListener("submit", async (event) => {
           event.preventDefault();
-          const occupancy = occupancySelect!.value;
-          const activityRaw = activitySelect!.hidden ? "" : activitySelect!.value;
+          const occupancy = occupancyValue()!;
+          // Only checked AND currently-enabled boxes count — a box left
+          // checked-but-disabled (which syncActivityControls() never
+          // actually leaves behind, but this guards the submission itself
+          // against relying on that) must never be submitted as part of
+          // the resident's actual selection.
+          const activities = activityCheckboxes
+            .filter((cb) => cb.checked && !cb.disabled)
+            .map((cb) => cb.value);
           const ifVersion = Number(form!.dataset.version);
 
           // No reporterId here, same as Laundry's own report script — the
           // actor is resolved server-side from this browser's session
-          // cookie (notes/adr/0002-identity-and-permissions.md).
+          // cookie (notes/adr/0002-identity-and-permissions.md). Dedup/
+          // canonical-order/event-exclusivity are all re-validated
+          // server-side regardless of what the UI already enforced — see
+          // src/pages/api/aa-room.ts.
           const res = await fetch("/api/aa-room", {
             method: "PATCH",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               occupancy,
-              activity: activityRaw === "" ? null : activityRaw,
+              activities,
               ifVersion,
             }),
           });
@@ -1863,7 +2171,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           if (res.ok) {
             const room = (await res.json()) as AaRoomState;
             applyAaRoomUpdate(room);
-            syncActivityVisibility();
+            syncActivityControls();
             const details = form!.closest("details.report");
             if (details) (details as HTMLDetailsElement).open = false;
             return;
@@ -1876,7 +2184,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             // overwrite, never a silent reload.
             const { current } = await res.json();
             applyAaRoomUpdate(current as AaRoomState);
-            syncActivityVisibility();
+            syncActivityControls();
             const label = STATUS_META[(current as AaRoomState).occupancy]?.label ?? (current as AaRoomState).occupancy;
             alert(
               `AA Room changed since you last saw it — it's now reported as "${label}". ` +

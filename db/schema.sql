@@ -61,19 +61,28 @@ CREATE TABLE IF NOT EXISTS sessions (
 -- expected_end_at columns: unlike a washer/dryer, nothing about a common
 -- room gives any report an objective end time, so those columns would
 -- exist with no way to ever populate them honestly (see the ADR,
--- Decision 3). "activity only set when occupancy = 'occupied'" is
--- enforced in src/lib/aa-room.ts, not here — SQLite's CHECK syntax
--- doesn't lend itself to an easy cross-column conditional, and the
--- existing `machines` table doesn't reach for that device for its own
--- analogous started_at/expected_end_at-only-when-in-use rule either.
--- reporter_id references sessions.id, same meaning as
+-- Decision 3). reporter_id references sessions.id, same meaning as
 -- machines.reporter_id (ADR 0002) — never a client-asserted value.
+--
+-- activities (v2 — "Design correction, v2" in the ADR): a JSON-encoded
+-- array of AaRoomActivity strings, replacing v1's single `activity`
+-- column, because the room's real activities (tv/pool/table-tennis/
+-- hanging-out) are independent and can co-occur. A JSON TEXT column
+-- rather than a join table — this is one row with no relational query
+-- need, so a second table would be pure plumbing. All of "non-empty iff
+-- occupied," "event iff alone," and "deduplicated/canonically ordered"
+-- live in src/lib/aa-room.ts, same as v1's "activity only set when
+-- occupancy = 'occupied'" did — SQLite CHECK can't express any of this
+-- against a JSON column either. A fresh database only ever sees this
+-- column — the old `activity` column and its migration path
+-- (migrateAaRoomActivitiesColumn() in src/lib/aa-room.ts) exist only to
+-- bring an already-deployed pre-v2 /data volume forward; this
+-- CREATE TABLE IF NOT EXISTS never creates that column at all.
 CREATE TABLE IF NOT EXISTS aa_room (
   id            TEXT PRIMARY KEY DEFAULT 'aa-room',
   occupancy     TEXT NOT NULL DEFAULT 'unknown'
                   CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
-  activity      TEXT
-                  CHECK (activity IN ('tv', 'pool', 'table-tennis', 'event')),
+  activities    TEXT NOT NULL DEFAULT '[]',
   confirmed_at  INTEGER,
   reporter_id   TEXT,
   version       INTEGER NOT NULL DEFAULT 1

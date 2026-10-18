@@ -1,6 +1,74 @@
 # ADR 0003: AA Room's shared live state
 
-**Status**: Decided — not yet implemented. This ADR fixes the state model,
+**Status**: Decided, with one design correction (see "Design correction,
+v2" below) made after Stage 4's 3D work exposed that v1's single-activity
+model didn't match how the room is actually used. Everything in Decision
+2's occupancy rules, Decision 3's freshness model, and Decision 4's
+inherited house-wide rules stands unchanged; Decision 1 and part of
+Decision 2's activity list are superseded by the correction.
+
+## Design correction, v2 — multiple simultaneous activities
+
+v1 (below, kept for the record rather than silently rewritten — see
+`PROCESS.md`'s "rewritten each time the project's shape genuinely
+changed" convention) chose a single optional `activity` field and
+explicitly rejected a "multi-activity checklist" alternative, reasoning
+that it was the most accurate model of the room but too expensive to
+report and render for v1's scope.
+
+That rejection was a **mistake about the facts, not a tradeoff that aged
+out**: AA Room is one large common room, and TV-watching, pool, table
+tennis, and ordinary hanging-out are genuinely independent, simultaneous
+uses by different people at the same time — the exact scenario Decision
+1's "cost" section already named as the model's known gap, but treated as
+an acceptable v1 loss rather than as something this common in practice.
+Once that was clear, keeping a single-activity field wasn't "simpler,
+sufficient for now" — it was actively wrong on the single most common
+case (someone watching TV while two others play pool is not an edge
+case in a shared common room; it's the default).
+
+**Decision 1 is therefore reversed**, not narrowed: AA Room's `activity`
+becomes `activities: AaRoomActivity[]`, with exactly one structural
+exception carried over from the original design's instinct — **`event`**
+(an organised, dorm-run activity) still exclusively occupies the whole
+room, because that is a real, different fact about the room (a formal
+event genuinely excludes incidental TV/pool/table-tennis/hanging-out
+happening at the same time, unlike those four, which don't exclude each
+other). So the model is now: an array of independent activity tags, with
+`event` validated as mutually exclusive with everything else rather than
+being "just a fifth tag."
+
+**Decision 2's activity list** gains a fifth, newly-named value:
+`hanging-out`. This is not a new concept — it is v1's unset/`null`
+activity ("books-and-sofas passive use: present but nothing specific to
+report") given an explicit name, because once activities can combine,
+"no tag" can no longer mean "occupied, nothing to say": an occupied room
+always needs **at least one** tag, and "ordinary presence, nothing
+louder than chatting/sitting/reading" needs its own name to combine with
+`tv`/`pool`/`table-tennis` the same way they combine with each other.
+
+**Reporting cost**, the original rejection's stated concern, is accepted
+as a real but worthwhile tradeoff now that the facts call for it: a
+checkbox group is still a few taps, no new screen, no account step — it
+does not compromise README's "a report should take seconds" the way the
+original rejection worried a full checklist model might.
+
+**Rendering cost**, the original rejection's other concern, turned out to
+already be mostly paid for: Stage 4's 3D scene gives each activity its
+own independent boolean flag (`tvOn`, `poolActive`, `tableTennisActive`)
+precisely because each has its own animation loop that doesn't interact
+with the others — showing several at once needed no new rendering model,
+only new figure-placement bookkeeping so two simultaneously-active zones
+don't place their figures on top of each other (see Mechanics, below,
+and the 3D section's own note on the `hanging-out`/`tv` slot collision
+this correction had to fix).
+
+What follows is v1's original text, left as written, with a trailing
+**"Superseded by the v2 correction above"** marker on anything the
+correction actually changes, so the reasoning that led to v1 — and why it
+was wrong — stays legible rather than disappearing.
+
+**Status (v1)**: Decided — not yet implemented. This ADR fixes the state model,
 statuses, and freshness rules for Toad Live's second facility before any
 schema, API, or UI work begins, the same order Crit 9 and Crit 10 each
 used (see ADR 0001, ADR 0002, and `PROCESS.md`'s "Rewritten each time the
@@ -42,7 +110,7 @@ below exists to drive it), and nothing about any facility after AA Room —
 each gets its own interrogation against its own real facts, not a
 template stamped out from this one.
 
-## Decision 1 — state model: occupancy as primary, activity as optional enrichment
+## Decision 1 (v1, superseded by the v2 correction above) — state model: occupancy as primary, activity as optional enrichment
 
 **Compared against three alternatives, all rejected:**
 
@@ -133,7 +201,8 @@ the machines side, in spirit if not in mechanics: there, a status exists
 that only certain actions (not time) can produce; here, a status exists
 that only the *absence* of action (time, specifically) can produce.
 
-**Optional activity** — four named values plus unset, each traced to one
+**Optional activity (v1, superseded — see the v2 correction at the top of
+this ADR)** — four named values plus unset, each traced to one
 of the room's given facts rather than invented:
 
 - `tv` — television
@@ -153,6 +222,51 @@ only meaning anything when `status` is `in-use` (`src/lib/db.ts`,
 Room: nothing in the given facts raises broken furniture as a concern
 this crit, and inventing an equipment-fault status here would be scope
 `FINAL_PROJECT_SOURCE_OF_TRUTH.md` never asked for.
+
+**Activities (v2 — current)** — five named values, `activities:
+AaRoomActivity[]` on the state, replacing the single optional `activity`
+above:
+
+- `tv` — television
+- `pool` — pool table
+- `table-tennis` — table tennis
+- `hanging-out` — ordinary presence: chatting, sitting, reading, eating,
+  resting, general use with nothing louder going on. This is v1's
+  unset/`null` meaning, now named rather than represented by an empty
+  array, because `occupied` must always carry at least one tag (see
+  below) — there is no longer a value-free way to mean "present, nothing
+  specific."
+- `event` — "often used for Hall activities": an organised, dorm-run
+  activity that occupies the **entire room exclusively**. Unlike the
+  other four, `event` cannot combine with anything else — when `event` is
+  reported, none of `tv`/`pool`/`table-tennis`/`hanging-out` may also be
+  true, because a formal event genuinely excludes incidental concurrent
+  use the way the other four don't exclude each other.
+
+**Validity constraints**, enforced server-side on every write (seed and
+decay must also always produce a value obeying these, not just resident
+reports):
+
+- `occupancy: "empty"` → `activities` must be `[]`.
+- `occupancy: "unknown"` → `activities` must be `[]` (decay's target,
+  same as v1).
+- `occupancy: "occupied"` → `activities` must be non-empty: at least one
+  tag is always required once the room is reported occupied, since
+  `hanging-out` now exists to name the "nothing specific" case explicitly
+  rather than leaving it empty.
+- `event` present → `activities` must be exactly `["event"]`; present
+  alongside any other tag is rejected as a validation error, not silently
+  resolved by dropping one side.
+- `tv`, `pool`, `table-tennis`, `hanging-out` may appear together in any
+  combination.
+- `activities` is deduplicated and stored/returned in a fixed canonical
+  order (`tv, pool, table-tennis, hanging-out, event`) regardless of the
+  order a client submitted them in — so two reports of the same set never
+  look like a change, and `version`/SSE/409 payloads are stable to
+  compare.
+
+No `out-of-order`-equivalent status exists for AA Room, same reasoning as
+v1.
 
 ## Decision 3 — freshness: every report ages, including empty
 
@@ -258,7 +372,241 @@ and this ADR does not reopen them:
   AA Room report is rejected exactly like a `reporterId` in a machine
   `PATCH` — `400`, not silently dropped.
 
-## Mechanics (proposed, not yet built)
+## Mechanics (v2 — current; v1's original proposal kept below for the record)
+
+**Schema** — `aa_room`, a single row (the room has no sub-locations the
+way Laundry has five):
+
+```sql
+CREATE TABLE IF NOT EXISTS aa_room (
+  id            TEXT PRIMARY KEY DEFAULT 'aa-room',
+  occupancy     TEXT NOT NULL DEFAULT 'unknown'
+                  CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
+  activities    TEXT NOT NULL DEFAULT '[]',
+  confirmed_at  INTEGER,
+  reporter_id   TEXT,
+  version       INTEGER NOT NULL DEFAULT 1
+);
+```
+
+`activities` is a JSON-encoded array of `AaRoomActivity` strings (e.g.
+`'["tv","hanging-out"]'`), not a join table: AA Room is one row with no
+need to query activities relationally, so a second table would be pure
+plumbing. `CHECK` cannot express "non-empty iff occupied," "`event`
+iff alone," or "deduplicated/canonically ordered" cleanly against a JSON
+column, so — same as v1's choice for the single-`activity` version — all
+of that lives in the application layer (`reportAaRoomStatus()`), not in
+SQL.
+
+No `started_at`/`expected_end_at` columns, same reasoning as v1 (Decision
+3: no objective end-time signal for this facility).
+
+**Migrating the already-deployed v1 row** — the production `/data`
+SQLite file has an `aa_room` table with the old `activity TEXT` column
+and real data in it, created before this correction existed. Mirrors
+`migrateVersionColumn()` in `src/lib/db.ts` (`PRAGMA table_info` +
+conditional `ALTER TABLE`), with one addition that plain
+`migrateVersionColumn()` didn't need: a way to tell "column added" apart
+from "column added **and** backfilled," since those are two separate
+steps now and a process can restart between them.
+
+```ts
+function migrateAaRoomActivitiesColumn(store: AaRoomStore): void {
+  const columns = store.db.prepare("PRAGMA table_info(aa_room)").all() as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "activities")) {
+    store.db.exec("ALTER TABLE aa_room ADD COLUMN activities TEXT NOT NULL DEFAULT '[]'");
+  }
+  // Backfill is keyed off actual row content, not "the column exists" —
+  // an ADD COLUMN that commits followed by a process crash before the
+  // backfill UPDATE runs must not be mistaken for "already migrated."
+  // A row is backfillable exactly when its legacy `activity` column
+  // still holds a real value this logic hasn't translated yet, OR
+  // `activities` is still at the column default `'[]'` while occupancy
+  // is 'occupied' (the one case the old schema could represent that an
+  // empty array cannot) — re-running this against an already-backfilled
+  // row is a no-op either way, so it's safe to call unconditionally
+  // every startup, not just once after the ALTER TABLE.
+  const row = store.db.prepare("SELECT occupancy, activity, activities FROM aa_room WHERE id = 'aa-room'").get() as
+    | { occupancy: string; activity: string | null; activities: string }
+    | undefined;
+  if (!row) return; // not seeded yet — seedAaRoomIfEmpty() runs after this
+  const alreadyMigrated = row.activities !== "[]" || row.occupancy !== "occupied";
+  if (alreadyMigrated) return;
+
+  const activities =
+    row.activity === "tv" ? ["tv"]
+    : row.activity === "pool" ? ["pool"]
+    : row.activity === "table-tennis" ? ["table-tennis"]
+    : row.activity === "event" ? ["event"]
+    : ["hanging-out"]; // occupied + activity NULL under v1 meant exactly this
+  store.db
+    .prepare("UPDATE aa_room SET activities = ? WHERE id = 'aa-room'")
+    .run(JSON.stringify(activities));
+}
+```
+
+The legacy `activity` column is **kept, not dropped**, this round: the
+`ALTER TABLE ... DROP COLUMN` step is deliberately deferred so the
+migration is reversible if anything about the backfill mapping turns out
+wrong after a real deploy. New code never reads or writes `activity`
+again — `empty`/`unknown` rows always already satisfy `activities =
+'[]'` (v1 only ever set `activity` alongside `occupancy = 'occupied'`,
+same as the `alreadyMigrated` check above assumes), so there is nothing
+further to backfill for them. A fresh database (CI, a new deploy with no
+prior `/data` volume) gets the schema above directly from `schema.sql`
+and never has an `activity` column to migrate away from at all.
+
+**Types** (`src/lib/types.ts`, additive, no changes to the existing
+`Machine`/`MachineStatus` exports):
+
+```ts
+export type AaRoomOccupancy = "empty" | "occupied" | "unknown";
+export type AaRoomActivity = "tv" | "pool" | "table-tennis" | "hanging-out" | "event";
+export const VALID_AA_ROOM_OCCUPANCIES: readonly AaRoomOccupancy[] =
+  ["empty", "occupied", "unknown"];
+// Canonical order — also the order dedup/sort normalizes every stored
+// and returned `activities` array into, so two reports of the same set
+// never read as a change and every consumer (panel, 3D scene, tests) can
+// compare arrays positionally instead of as sets.
+export const VALID_AA_ROOM_ACTIVITIES: readonly AaRoomActivity[] =
+  ["tv", "pool", "table-tennis", "hanging-out", "event"];
+
+// Only empty/occupied are ever accepted from a client — see Decision 2's
+// "unknown is not a reportable value." unknown stays in the type because
+// it's a real stored/public value (seed state, and decay's target), just
+// never one a PATCH body may name.
+export type ReportableAaRoomOccupancy = Extract<AaRoomOccupancy, "empty" | "occupied">;
+
+export interface AaRoomState {
+  occupancy: AaRoomOccupancy;
+  // Canonically deduplicated and ordered (see VALID_AA_ROOM_ACTIVITIES) —
+  // never the raw, as-submitted order a client's PATCH body carried.
+  activities: AaRoomActivity[];
+  confirmedAt: number | null;
+  version: number;
+  // Derived at read time from (occupancy, confirmedAt, now) — never
+  // stored, never accepted from a client. null means there is currently
+  // no fresh-enough observation to grade (occupancy is "unknown", whether
+  // from the initial seed or from decay). See Decision 3.
+  freshness: "fresh" | "stale" | null;
+}
+
+// Pure, independent of the system clock — a deadline passed in, not read
+// internally — specifically so both this logic and its tests can use
+// constructed timestamps rather than real elapsed time. Mirrors how
+// confirmedLabel()/remainingLabel() in src/pages/index.astro are already
+// pure functions of (timestamp, now), not stateful.
+export function computeFreshness(
+  occupancy: AaRoomOccupancy,
+  confirmedAt: number | null,
+  now: number,
+): "fresh" | "stale" | null {
+  if (occupancy === "unknown" || confirmedAt === null) return null;
+  const ageMs = now - confirmedAt;
+  if (ageMs < AA_ROOM_FRESH_MS) return "fresh";
+  if (ageMs < AA_ROOM_EXPIRE_MS) return "stale";
+  return null; // past the expiry window — the next read's decay will
+               // have already moved occupancy to "unknown" by the time
+               // anything calls this on stored state; returning null
+               // here too keeps the function correct even if called
+               // against a not-yet-decayed row mid-transition.
+}
+```
+
+(`reporterId` stays internal-only, exactly as `Machine` already omits it
+from its public shape — ADR 0002.)
+
+**API** — mirrors `src/pages/api/machines/[id].ts`'s existing shape, as a
+new route rather than overloading the machines one (AA Room is not a
+machine and has no `id` path segment to key off — it is the one row):
+
+- `GET /api/aa-room` → the current `AaRoomState`, decay applied lazily on
+  read exactly like `getMachine()`. `activities` is always canonically
+  deduplicated/ordered (see Types above).
+- `PATCH /api/aa-room` → body `{ occupancy, activities?, ifVersion }`.
+  Validation, in order:
+  1. a valid session is required → `401` before the body is parsed;
+  2. `occupancy` must be `"empty"` or `"occupied"` — `"unknown"` (or
+     anything else) is rejected `400`, per Decision 2's "unknown is not a
+     reportable value";
+  3. a body carrying any actor-identifying field → `400`, logged as a
+     rejected client-actor-claim;
+  4. `activities`, if present, must be an array whose every element is
+     one of the five valid values — otherwise `400`;
+  5. the array is deduplicated and canonically sorted (see Types above) —
+     this happens before the next two checks, so a client sending
+     `["event", "event"]` or out-of-order combinations is judged on its
+     actual resulting set, not its literal submitted array;
+  6. `occupancy: "empty"` requires the (deduped) array to be empty —
+     `400` otherwise;
+  7. `occupancy: "occupied"` requires the (deduped) array to be
+     non-empty — `400` otherwise ("at least one activity is required
+     when occupied" — `hanging-out` is always available as the "nothing
+     specific" choice);
+  8. if `"event"` is present, the array must be exactly `["event"]` —
+     `400` ("event cannot be combined with other activities") otherwise;
+  9. `ifVersion` validated by the exact same `isSafePositiveInteger`
+     guard already shared by `startedAt`/`expectedEndAt` (`CLAUDE.md`:
+     "any new field that stores a client-provided number needs the same
+     guard").
+
+  A stale `ifVersion` → `409` with the current canonical `AaRoomState`
+  (activities canonically ordered, same as every other response).
+
+**SSE** — the existing single stream (`GET /api/stream`) carries both
+facilities. Two ways to tell AA Room's events apart from a machine's were
+considered:
+
+- **a tagged union inside the existing `event: machine` name** (e.g. a
+  `kind: "machine" | "aa-room"` discriminator field on one broadcast
+  payload shape). Rejected: it would force every existing listener
+  (`src/pages/index.astro`'s `events.addEventListener("machine", ...)`,
+  `spec/realtime.test.ts`'s event-reading helpers) to add a discriminator
+  check it doesn't need today, for a case (AA Room state) it previously
+  had no reason to see at all — a change to Laundry's own wire contract
+  to make room for an unrelated facility.
+- **Chosen: a second named SSE event, `event: aa-room`, over the same
+  connection.** Checked directly against the current code rather than
+  assumed: as it stands today, `src/lib/realtime.ts`'s `Subscriber` type
+  and `broadcast()` are concretely typed to `Machine`, not
+  payload-shape-agnostic —
+
+  ```ts
+  type Subscriber = (machine: Machine) => void;
+  export function broadcast(machine: Machine): void { ... }
+  ```
+
+  so carrying a second payload shape over the same subscriber list
+  requires widening this module first: `Subscriber` becomes
+  `(payload: Machine | AaRoomState) => void` (or a small discriminated
+  union, e.g. `{ kind: "machine"; machine: Machine } | { kind: "aa-room";
+  room: AaRoomState }`, decided at implementation time by whichever reads
+  more clearly at the two call sites), and `src/pages/api/stream.ts`'s one
+  `subscribe()` callback dispatches to `event: machine` or `event: aa-room`
+  based on the payload it receives. This is still one connection, one
+  subscriber list, one `: connected` comment on connect (see `885da13`),
+  and the wire-level `machine` event name and its JSON shape are
+  unchanged — so every existing listener and test keyed on `event:
+  machine` is unaffected — but it is a real, if small, change to
+  `realtime.ts` itself, not a reuse of an already-generic interface.
+
+**Decay** — a `decayedAaRoom()` function parallel to `decayed()` in
+`src/lib/db.ts`, but keyed only to `confirmed_at` (no `expected_end_at`
+branch at all, per Decision 3): past 45 minutes, `UPDATE aa_room SET
+occupancy = 'unknown', activities = '[]', version = version + 1 WHERE id
+= 'aa-room' AND occupancy != 'unknown'`, broadcasting the result exactly
+like Laundry's decay broadcasts a machine transition. The 15/45-minute
+constants live beside `UNTIMED_IN_USE_DECAY_MS`, marked provisional in
+the same comment style.
+
+**SSE/409 payload shape** — unchanged structurally from v1 below: still
+one `event: aa-room` name on the existing connection, still the same
+`BroadcastPayload` discriminated union in `src/lib/realtime.ts`. Only the
+`AaRoomState` shape it carries changes (`activity` → `activities`), which
+every existing listener already treats as an opaque JSON payload it
+re-renders from, not a shape it pattern-matches structurally.
+
+## v1's original Mechanics proposal (superseded by v2 above, kept for the record)
 
 **Schema** — one new table, `aa_room`, a single row (the room has no
 sub-locations the way Laundry has five), following `machines`' column
@@ -303,10 +651,6 @@ export const VALID_AA_ROOM_OCCUPANCIES: readonly AaRoomOccupancy[] =
 export const VALID_AA_ROOM_ACTIVITIES: readonly AaRoomActivity[] =
   ["tv", "pool", "table-tennis", "event"];
 
-// Only empty/occupied are ever accepted from a client — see Decision 2's
-// "unknown is not a reportable value." unknown stays in the type because
-// it's a real stored/public value (seed state, and decay's target), just
-// never one a PATCH body may name.
 export type ReportableAaRoomOccupancy = Extract<AaRoomOccupancy, "empty" | "occupied">;
 
 export interface AaRoomState {
@@ -314,102 +658,22 @@ export interface AaRoomState {
   activity: AaRoomActivity | null;
   confirmedAt: number | null;
   version: number;
-  // Derived at read time from (occupancy, confirmedAt, now) — never
-  // stored, never accepted from a client. null means there is currently
-  // no fresh-enough observation to grade (occupancy is "unknown", whether
-  // from the initial seed or from decay). See Decision 3.
   freshness: "fresh" | "stale" | null;
-}
-
-// Pure, independent of the system clock — a deadline passed in, not read
-// internally — specifically so both this logic and its tests can use
-// constructed timestamps rather than real elapsed time. Mirrors how
-// confirmedLabel()/remainingLabel() in src/pages/index.astro are already
-// pure functions of (timestamp, now), not stateful.
-export function computeFreshness(
-  occupancy: AaRoomOccupancy,
-  confirmedAt: number | null,
-  now: number,
-): "fresh" | "stale" | null {
-  if (occupancy === "unknown" || confirmedAt === null) return null;
-  const ageMs = now - confirmedAt;
-  if (ageMs < AA_ROOM_FRESH_MS) return "fresh";
-  if (ageMs < AA_ROOM_EXPIRE_MS) return "stale";
-  return null; // past the expiry window — the next read's decay will
-               // have already moved occupancy to "unknown" by the time
-               // anything calls this on stored state; returning null
-               // here too keeps the function correct even if called
-               // against a not-yet-decayed row mid-transition.
 }
 ```
 
-(`reporterId` stays internal-only, exactly as `Machine` already omits it
-from its public shape — ADR 0002.)
+**API** — `GET /api/aa-room` returns the current `AaRoomState`; `PATCH
+/api/aa-room` body `{ occupancy, activity?, ifVersion }`, with `activity`
+restricted to the four original values and only ever set alongside
+`occupancy: "occupied"`.
 
-**API** — mirrors `src/pages/api/machines/[id].ts`'s existing shape, as a
-new route rather than overloading the machines one (AA Room is not a
-machine and has no `id` path segment to key off — it is the one row):
+**SSE** — a second named SSE event, `event: aa-room`, over the existing
+`GET /api/stream` connection, via a discriminated `BroadcastPayload`
+union in `src/lib/realtime.ts`.
 
-- `GET /api/aa-room` → the current `AaRoomState`, decay applied lazily on
-  read exactly like `getMachine()`.
-- `PATCH /api/aa-room` → body `{ occupancy, activity?, ifVersion }`.
-  Validation mirrors the machines route: `occupancy` must be `"empty"` or
-  `"occupied"` — `"unknown"` (or anything else) is rejected `400`, per
-  Decision 2's "unknown is not a reportable value"; `activity`, if
-  present, must be one of the four valid values *and* `occupancy` must be
-  `"occupied"` — otherwise `400`; `ifVersion` validated by the exact same
-  `isSafePositiveInteger` guard already shared by
-  `startedAt`/`expectedEndAt` (`CLAUDE.md`: "any new field that stores a
-  client-provided number needs the same guard"); no session → `401`
-  before the body is parsed; a body carrying any actor-identifying field
-  → `400`, logged as a rejected client-actor-claim; a stale `ifVersion` →
-  `409` with the current canonical `AaRoomState`.
-
-**SSE** — the existing single stream (`GET /api/stream`) carries both
-facilities. Two ways to tell AA Room's events apart from a machine's were
-considered:
-
-- **a tagged union inside the existing `event: machine` name** (e.g. a
-  `kind: "machine" | "aa-room"` discriminator field on one broadcast
-  payload shape). Rejected: it would force every existing listener
-  (`src/pages/index.astro`'s `events.addEventListener("machine", ...)`,
-  `spec/realtime.test.ts`'s event-reading helpers) to add a discriminator
-  check it doesn't need today, for a case (AA Room state) it previously
-  had no reason to see at all — a change to Laundry's own wire contract
-  to make room for an unrelated facility.
-- **Chosen: a second named SSE event, `event: aa-room`, over the same
-  connection.** Checked directly against the current code rather than
-  assumed: as it stands today, `src/lib/realtime.ts`'s `Subscriber` type
-  and `broadcast()` are concretely typed to `Machine`, not
-  payload-shape-agnostic —
-
-  ```ts
-  type Subscriber = (machine: Machine) => void;
-  export function broadcast(machine: Machine): void { ... }
-  ```
-
-  so carrying a second payload shape over the same subscriber list
-  requires widening this module first: `Subscriber` becomes
-  `(payload: Machine | AaRoomState) => void` (or a small discriminated
-  union, e.g. `{ kind: "machine"; machine: Machine } | { kind: "aa-room";
-  room: AaRoomState }`, decided at implementation time by whichever reads
-  more clearly at the two call sites), and `src/pages/api/stream.ts`'s one
-  `subscribe()` callback dispatches to `event: machine` or `event: aa-room`
-  based on the payload it receives. This is still one connection, one
-  subscriber list, one `: connected` comment on connect (see `885da13`),
-  and the wire-level `machine` event name and its JSON shape are
-  unchanged — so every existing listener and test keyed on `event:
-  machine` is unaffected — but it is a real, if small, change to
-  `realtime.ts` itself, not a reuse of an already-generic interface.
-
-**Decay** — a `decayedAaRoom()` function parallel to `decayed()` in
-`src/lib/db.ts`, but keyed only to `confirmed_at` (no `expected_end_at`
-branch at all, per Decision 3): past 45 minutes, `UPDATE aa_room SET
-occupancy = 'unknown', activity = NULL, version = version + 1 WHERE id =
-'aa-room' AND occupancy != 'unknown'`, broadcasting the result exactly
-like Laundry's decay broadcasts a machine transition. The 15/45-minute
-constants live beside `UNTIMED_IN_USE_DECAY_MS`, marked provisional in
-the same comment style.
+**Decay** — `UPDATE aa_room SET occupancy = 'unknown', activity = NULL,
+version = version + 1 WHERE id = 'aa-room' AND occupancy != 'unknown'`
+past 45 minutes since `confirmed_at`.
 
 ## Consequences
 

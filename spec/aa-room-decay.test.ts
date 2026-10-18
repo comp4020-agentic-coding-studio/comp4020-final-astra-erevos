@@ -2,7 +2,13 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { getAaRoom, reportAaRoomStatus, seedAaRoomIfEmpty, type AaRoomStore } from "../src/lib/aa-room.ts";
+import {
+  getAaRoom,
+  migrateAaRoomActivitiesColumn,
+  reportAaRoomStatus,
+  seedAaRoomIfEmpty,
+  type AaRoomStore,
+} from "../src/lib/aa-room.ts";
 import { AA_ROOM_EXPIRE_MS, AA_ROOM_FRESH_MS } from "../src/lib/freshness.ts";
 import { subscribe, type BroadcastPayload } from "../src/lib/realtime.ts";
 
@@ -44,7 +50,7 @@ it("a fresh database seeds AA Room as unknown with no freshness to grade", () =>
   const now = 1_700_000_000_000;
   const room = getAaRoom(now, store);
   expect(room.occupancy).toBe("unknown");
-  expect(room.activity).toBeNull();
+  expect(room.activities).toEqual([]);
   expect(room.confirmedAt).toBeNull();
   expect(room.freshness).toBeNull();
 });
@@ -65,7 +71,7 @@ it("a report well within the fresh window is read back as fresh", () => {
 
   const reportedAt = 1_700_000_000_000;
   const result = reportAaRoomStatus(
-    { occupancy: "occupied", activity: "pool", reporterId: "test-actor" },
+    { occupancy: "occupied", activities: ["pool"], reporterId: "test-actor" },
     1,
     reportedAt,
     store,
@@ -75,8 +81,30 @@ it("a report well within the fresh window is read back as fresh", () => {
   const shortlyAfter = reportedAt + 60_000; // 1 minute later — well under 15
   const room = getAaRoom(shortlyAfter, store);
   expect(room.occupancy).toBe("occupied");
-  expect(room.activity).toBe("pool");
+  expect(room.activities).toEqual(["pool"]);
   expect(room.freshness).toBe("fresh");
+});
+
+// v2 (notes/adr/0003-aa-room-live-state.md, "Design correction, v2"):
+// tv/pool/table-tennis/hanging-out are independent and can co-occur —
+// this is the persistence-layer version of the same round-trip
+// spec/aa-room.test.ts checks over HTTP.
+it("persists and canonically orders multiple simultaneous non-event activities", () => {
+  const store = freshTestStore();
+  seedAaRoomIfEmpty(store);
+
+  const reportedAt = 1_700_000_000_000;
+  const result = reportAaRoomStatus(
+    { occupancy: "occupied", activities: ["hanging-out", "tv", "table-tennis", "tv"], reporterId: "test-actor" },
+    1,
+    reportedAt,
+    store,
+  );
+  expect(result.ok).toBe(true);
+  expect(result.ok && result.room.activities).toEqual(["tv", "table-tennis", "hanging-out"]);
+
+  const room = getAaRoom(reportedAt + 1000, store);
+  expect(room.activities).toEqual(["tv", "table-tennis", "hanging-out"]);
 });
 
 it("a report read back past the fresh threshold but short of expiry reads as stale, with the stored occupancy untouched", () => {
@@ -85,7 +113,7 @@ it("a report read back past the fresh threshold but short of expiry reads as sta
 
   const reportedAt = 1_700_000_000_000;
   const report = reportAaRoomStatus(
-    { occupancy: "occupied", activity: "tv", reporterId: "test-actor" },
+    { occupancy: "occupied", activities: ["tv"], reporterId: "test-actor" },
     1,
     reportedAt,
     store,
@@ -96,18 +124,18 @@ it("a report read back past the fresh threshold but short of expiry reads as sta
   const midStale = reportedAt + AA_ROOM_FRESH_MS + 60_000; // 16 minutes later
   const room = getAaRoom(midStale, store);
   expect(room.occupancy).toBe("occupied"); // stale is presentation-only — nothing decayed yet
-  expect(room.activity).toBe("tv");
+  expect(room.activities).toEqual(["tv"]);
   expect(room.freshness).toBe("stale");
   expect(room.version).toBe(versionAfterReport); // no mutation happened for "stale"
 });
 
-it("a report read back past the 45-minute expiry decays to unknown via the real decay code path, clearing activity and advancing version", () => {
+it("a report read back past the 45-minute expiry decays to unknown via the real decay code path, clearing activities and advancing version", () => {
   const store = freshTestStore();
   seedAaRoomIfEmpty(store);
 
   const reportedAt = 1_700_000_000_000;
   const report = reportAaRoomStatus(
-    { occupancy: "occupied", activity: "table-tennis", reporterId: "test-actor" },
+    { occupancy: "occupied", activities: ["table-tennis"], reporterId: "test-actor" },
     1,
     reportedAt,
     store,
@@ -118,7 +146,7 @@ it("a report read back past the 45-minute expiry decays to unknown via the real 
   const pastExpiry = reportedAt + AA_ROOM_EXPIRE_MS + 60_000; // 46 minutes later
   const decayed = getAaRoom(pastExpiry, store);
   expect(decayed.occupancy).toBe("unknown");
-  expect(decayed.activity).toBeNull();
+  expect(decayed.activities).toEqual([]);
   expect(decayed.freshness).toBeNull();
   // Decay is a real, canonical mutation — it must advance version exactly
   // like a resident's report does, so a stale client can't silently
@@ -139,7 +167,7 @@ it("empty decays to unknown exactly like occupied does — no stickiness for AA 
   seedAaRoomIfEmpty(store);
 
   const reportedAt = 1_700_000_000_000;
-  const report = reportAaRoomStatus({ occupancy: "empty", activity: null, reporterId: "test-actor" }, 1, reportedAt, store);
+  const report = reportAaRoomStatus({ occupancy: "empty", activities: [], reporterId: "test-actor" }, 1, reportedAt, store);
   expect(report.ok).toBe(true);
 
   const pastExpiry = reportedAt + AA_ROOM_EXPIRE_MS + 1;
@@ -163,7 +191,7 @@ it("a decay transition broadcasts the new 'unknown' state over realtime.ts, exac
 
   const reportedAt = 1_700_000_000_000;
   const report = reportAaRoomStatus(
-    { occupancy: "occupied", activity: "event", reporterId: "test-actor" },
+    { occupancy: "occupied", activities: ["event"], reporterId: "test-actor" },
     1,
     reportedAt,
     store,
@@ -204,7 +232,7 @@ it("an ordinary read that finds nothing stale broadcasts nothing", () => {
 
   const reportedAt = 1_700_000_000_000;
   const report = reportAaRoomStatus(
-    { occupancy: "occupied", activity: "tv", reporterId: "test-actor" },
+    { occupancy: "occupied", activities: ["tv"], reporterId: "test-actor" },
     1,
     reportedAt,
     store,
@@ -227,14 +255,14 @@ it("reporting against a stale ifVersion is rejected 409-equivalent (ok: false) w
   seedAaRoomIfEmpty(store);
 
   const now = 1_700_000_000_000;
-  const first = reportAaRoomStatus({ occupancy: "occupied", activity: "tv", reporterId: "a" }, 1, now, store);
+  const first = reportAaRoomStatus({ occupancy: "occupied", activities: ["tv"], reporterId: "a" }, 1, now, store);
   expect(first.ok).toBe(true);
 
-  const stale = reportAaRoomStatus({ occupancy: "empty", activity: null, reporterId: "b" }, 1, now, store);
+  const stale = reportAaRoomStatus({ occupancy: "empty", activities: [], reporterId: "b" }, 1, now, store);
   expect(stale.ok).toBe(false);
   if (!stale.ok) {
     expect(stale.current.occupancy).toBe("occupied");
-    expect(stale.current.activity).toBe("tv");
+    expect(stale.current.activities).toEqual(["tv"]);
   }
 });
 
@@ -243,15 +271,158 @@ it("a stale-ifVersion report that gets rejected broadcasts nothing", () => {
   seedAaRoomIfEmpty(store);
 
   const now = 1_700_000_000_000;
-  const first = reportAaRoomStatus({ occupancy: "occupied", activity: "tv", reporterId: "a" }, 1, now, store);
+  const first = reportAaRoomStatus({ occupancy: "occupied", activities: ["tv"], reporterId: "a" }, 1, now, store);
   expect(first.ok).toBe(true);
 
   const received: BroadcastPayload[] = [];
   const unsubscribe = subscribe((payload) => received.push(payload));
 
-  const stale = reportAaRoomStatus({ occupancy: "empty", activity: null, reporterId: "b" }, 1, now, store);
+  const stale = reportAaRoomStatus({ occupancy: "empty", activities: [], reporterId: "b" }, 1, now, store);
   expect(stale.ok).toBe(false);
 
   expect(received).toEqual([]);
   unsubscribe();
+});
+
+// --- v2 migration: bringing an already-deployed v1 row forward ---
+// (notes/adr/0003-aa-room-live-state.md, "Migrating the already-deployed
+// v1 row"). These build a throwaway database carrying the OLD (v1)
+// `aa_room` schema directly — not db/schema.sql, which already ships the
+// v2 `activities` column — so migrateAaRoomActivitiesColumn() is actually
+// exercised against the exact shape a pre-correction production /data
+// volume has, not a schema that already matches the target.
+function legacyV1Store(): AaRoomStore {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE aa_room (
+      id            TEXT PRIMARY KEY DEFAULT 'aa-room',
+      occupancy     TEXT NOT NULL DEFAULT 'unknown'
+                      CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
+      activity      TEXT
+                      CHECK (activity IN ('tv', 'pool', 'table-tennis', 'event')),
+      confirmed_at  INTEGER,
+      reporter_id   TEXT,
+      version       INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+  return { db };
+}
+
+it.each([
+  ["tv", ["tv"]],
+  ["pool", ["pool"]],
+  ["table-tennis", ["table-tennis"]],
+  ["event", ["event"]],
+  [null, ["hanging-out"]], // occupied + activity NULL under v1 meant exactly this
+] as const)(
+  "migrates an already-deployed occupied v1 row with activity=%s to activities=%j",
+  (legacyActivity, expectedActivities) => {
+    const store = legacyV1Store();
+    store.db
+      .prepare(
+        "INSERT INTO aa_room (id, occupancy, activity, confirmed_at, reporter_id, version) VALUES ('aa-room', 'occupied', ?, 1700000000000, 'someone', 3)",
+      )
+      .run(legacyActivity);
+
+    migrateAaRoomActivitiesColumn(store);
+
+    const row = store.db.prepare("SELECT occupancy, activities, activity, version FROM aa_room WHERE id = 'aa-room'").get() as {
+      occupancy: string;
+      activities: string;
+      activity: string | null;
+      version: number;
+    };
+    expect(JSON.parse(row.activities)).toEqual(expectedActivities);
+    // Migrating is not itself a report — it must not touch occupancy,
+    // version, or the legacy column's own value (kept, not dropped, per
+    // the ADR: reversible rather than destructive).
+    expect(row.occupancy).toBe("occupied");
+    expect(row.activity).toBe(legacyActivity);
+    expect(row.version).toBe(3);
+
+    // The real getAaRoom()/reportAaRoomStatus() code path reads the
+    // migrated row correctly, not just the raw column.
+    const state = getAaRoom(1_700_000_001_000, store);
+    expect(state.activities).toEqual(expectedActivities);
+  },
+);
+
+it("migrates an already-deployed empty v1 row to an empty activities array", () => {
+  const store = legacyV1Store();
+  store.db
+    .prepare(
+      "INSERT INTO aa_room (id, occupancy, activity, confirmed_at, reporter_id, version) VALUES ('aa-room', 'empty', NULL, 1700000000000, 'someone', 2)",
+    )
+    .run();
+
+  migrateAaRoomActivitiesColumn(store);
+
+  const state = getAaRoom(1_700_000_001_000, store);
+  expect(state.occupancy).toBe("empty");
+  expect(state.activities).toEqual([]);
+});
+
+it("migrates an already-deployed unknown (never-reported) v1 row to an empty activities array", () => {
+  const store = legacyV1Store();
+  // No INSERT at all — mirrors a freshly-deployed-but-never-seeded v1
+  // row's absence; migrateAaRoomActivitiesColumn() must tolerate this
+  // (seedAaRoomIfEmpty() runs after it) rather than throwing.
+  expect(() => migrateAaRoomActivitiesColumn(store)).not.toThrow();
+
+  seedAaRoomIfEmpty(store);
+  const state = getAaRoom(1_700_000_001_000, store);
+  expect(state.occupancy).toBe("unknown");
+  expect(state.activities).toEqual([]);
+});
+
+// The exact scenario the user's migration plan specifically called out:
+// an ADD COLUMN that commits, followed by a process restart BEFORE the
+// backfill UPDATE runs — "the column exists" must never be mistaken for
+// "backfill already happened."
+it("recovers correctly if a prior run added the activities column but crashed before backfilling it", () => {
+  const store = legacyV1Store();
+  store.db
+    .prepare(
+      "INSERT INTO aa_room (id, occupancy, activity, confirmed_at, reporter_id, version) VALUES ('aa-room', 'occupied', 'pool', 1700000000000, 'someone', 5)",
+    )
+    .run();
+  // Simulate exactly the ALTER TABLE half of a prior, interrupted
+  // migration run — column added, still at its default, backfill never
+  // ran.
+  store.db.exec("ALTER TABLE aa_room ADD COLUMN activities TEXT NOT NULL DEFAULT '[]'");
+
+  migrateAaRoomActivitiesColumn(store);
+
+  const state = getAaRoom(1_700_000_001_000, store);
+  expect(state.activities).toEqual(["pool"]);
+});
+
+it("is idempotent — running it again after a successful migration changes nothing further", () => {
+  const store = legacyV1Store();
+  store.db
+    .prepare(
+      "INSERT INTO aa_room (id, occupancy, activity, confirmed_at, reporter_id, version) VALUES ('aa-room', 'occupied', 'event', 1700000000000, 'someone', 7)",
+    )
+    .run();
+
+  migrateAaRoomActivitiesColumn(store);
+  migrateAaRoomActivitiesColumn(store);
+  migrateAaRoomActivitiesColumn(store);
+
+  const state = getAaRoom(1_700_000_001_000, store);
+  expect(state.activities).toEqual(["event"]);
+
+  const row = store.db.prepare("SELECT version FROM aa_room WHERE id = 'aa-room'").get() as { version: number };
+  expect(row.version).toBe(7); // never bumped by the migration itself
+});
+
+it("a fresh v2 database (already shipped with the activities column) is left untouched by the migration", () => {
+  const store = freshTestStore(); // db/schema.sql — the current, v2 schema
+  seedAaRoomIfEmpty(store);
+
+  expect(() => migrateAaRoomActivitiesColumn(store)).not.toThrow();
+
+  const state = getAaRoom(1_700_000_000_000, store);
+  expect(state.occupancy).toBe("unknown");
+  expect(state.activities).toEqual([]);
 });

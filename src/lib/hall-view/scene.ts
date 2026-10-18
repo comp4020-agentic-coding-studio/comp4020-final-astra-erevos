@@ -30,18 +30,37 @@
 // behaves. The overview camera fit already took "the room" as a list of
 // objects (boundsCorners([room.group])), so fitting all five rooms'
 // combined bounds instead needed no change to camera-fit.ts itself.
+//
+// Stage 4 (AA Room) — the renderer, the render loop, and the resize
+// listener used to live directly in this module's mount(), the only
+// facility that existed. Adding AA Room's own 3D scene meant a second
+// mount-style call site, and two independent `new THREE.WebGLRenderer()`
+// calls would have meant two live GPU contexts both rendering at once —
+// real cost for whichever facility's canvas isn't even visible, and
+// exactly the per-facility-renderer anti-pattern ruled out up front (see
+// renderer-host.ts's own top-of-file note). So that plumbing moved out
+// into renderer-host.ts, a single shared module every facility's mount
+// function registers its scene/camera/resize/update against — this
+// module's own mount() is now a pure CONTENT builder (scene graph,
+// camera, interaction, the one Laundry-specific update() tick), never a
+// renderer or animation-loop owner. Nothing about the proven camera-fit
+// math, the fixed-isometric-no-orbit framing, or interaction.ts's
+// hover/focus/tween logic changed — only who calls requestAnimationFrame
+// and owns the WebGLRenderer instance.
 import * as THREE from "three";
-import type { Location, Machine, MachineType } from "../types.ts";
+import type { AaRoomState, Location, Machine, MachineType } from "../types.ts";
 import { buildRoom } from "./room.ts";
+import { buildAaRoom } from "./aa-room.ts";
 import { ROOM_PLACEMENTS } from "./hall-layout.ts";
 import { buildRoomLabel } from "./room-label.ts";
 import { buildMachineMesh, type MachineMeshHandle } from "./machine-mesh.ts";
 import { createInteraction, type InteractionTarget } from "./interaction.ts";
 import { createOverlay } from "./overlay.ts";
 import { boundsCorners, fitBoundsToRect } from "./camera-fit.ts";
+import { activateFacility, getSharedCanvas, registerFacility, unregisterFacility } from "./renderer-host.ts";
 
 export interface HallViewHandle {
-  /** Stops the render loop and frees GPU resources — call on page teardown if ever needed. */
+  /** Stops this facility's content from being ticked/rendered and unregisters it. The shared renderer/canvas itself is never torn down (see renderer-host.ts) — another facility may still be using it. */
   dispose(): void;
 }
 
@@ -91,6 +110,9 @@ const CAMERA_DISTANCE = 10; // arbitrary — orthographic apparent size depends 
 // correctness was checked with, not chosen by eye.
 const OVERVIEW_FILL = 0.9;
 
+const LAUNDRY_FACILITY_KEY = "laundry";
+const AA_ROOM_FACILITY_KEY = "aa-room";
+
 // Stage 6 — the workbench-layout page wants the right-hand information
 // panel to highlight and scroll to whichever machine's 3D model is
 // currently focused. Rather than have index.astro reach into this
@@ -115,15 +137,14 @@ export function mount(
   // world: see the Stage 1 design discussion. frustumHalfHeight/position
   // are placeholders here — set for real a few lines down, once the
   // room exists and its bounds can be measured.
-  let aspect = container.clientWidth / Math.max(container.clientHeight, 1);
+  let aspect = Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.setSize(container.clientWidth, container.clientHeight);
-  container.appendChild(renderer.domElement);
+  // Stage 4 — the shared renderer's one canvas, not a fresh
+  // WebGLRenderer. getSharedCanvas() creates the renderer (and its
+  // render loop) on first call from any facility, and returns the exact
+  // same canvas/context on every call after — see renderer-host.ts.
+  const sharedCanvas = getSharedCanvas();
 
   // Lighting: one warm directional light (the shadow-casting key light,
   // angled to roughly match the camera's isometric direction so faces
@@ -257,9 +278,13 @@ export function mount(
 
   // Stage 2 — overlay DOM (hover card + focus panel) and interaction
   // (raycasting, hover/click, the camera dolly tween). `container` here
-  // is the same element the canvas lives in — the overlay positions
-  // itself relative to it via CSS (see index.astro's .hall-view-canvas
-  // being `position: relative`).
+  // is the same element the overlay positions itself relative to via CSS
+  // (see index.astro's .hall-view-canvas being `position: relative`) —
+  // Stage 4: the canvas itself is the shared one, appended into
+  // `container` only once this facility is actually activated (see
+  // renderer-host.ts's activateFacility), but the overlay DOM is created
+  // directly inside `container` regardless, since it's plain positioned
+  // HTML, not part of the shared WebGL canvas.
   const overviewPosition = camera.position.clone();
 
   // overlay is declared with `let` and assigned just below so its
@@ -277,7 +302,7 @@ export function mount(
   let focusedTarget: InteractionTarget | null = null;
 
   const interaction = createInteraction(
-    renderer.domElement,
+    sharedCanvas,
     camera,
     interactionTargets,
     overviewPosition,
@@ -362,49 +387,170 @@ export function mount(
   const registeredScene: MountedScene = { applyMachineUpdate };
   mountedScenes.add(registeredScene);
 
-  function handleResize(): void {
-    const width = container.clientWidth;
-    const height = Math.max(container.clientHeight, 1);
-    aspect = width / height;
-    renderer.setSize(width, height);
-    computeOverviewFit();
-    overviewPosition.copy(camera.position);
-    interaction.refreshFraming(aspect, overviewPosition, overviewLookAt, overviewZoom);
-  }
-  window.addEventListener("resize", handleResize);
-
+  // Stage 4 — resize/update are no longer this module's own
+  // window-resize listener and requestAnimationFrame loop; they're a
+  // descriptor registered with the shared renderer host, called only
+  // while Laundry is the active facility (see renderer-host.ts).
   const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  let elapsed = 0;
 
-  const clock = new THREE.Clock();
-  let frameId: number | null = null;
-  let previousElapsed = 0;
-  function animate(): void {
-    frameId = requestAnimationFrame(animate);
-    const elapsed = clock.getElapsedTime();
-    const delta = elapsed - previousElapsed;
-    previousElapsed = elapsed;
-    if (!prefersReducedMotion) {
-      for (const handle of machineHandles.values()) handle.update(elapsed);
-    }
-    // Always advances, unlike the ambient per-machine animation above:
-    // see interaction.ts's note on why a user-initiated camera move
-    // can't simply be skipped under reduced motion (it would leave the
-    // camera stuck at the overview position) — reduced motion instead
-    // makes interaction.ts's own tween duration near-instant.
-    interaction.update(delta);
-    updateFocusPanelPosition();
-    renderer.render(scene, camera);
-  }
-  animate();
+  registerFacility(LAUNDRY_FACILITY_KEY, {
+    scene,
+    camera,
+    resize(width, height) {
+      aspect = width / Math.max(height, 1);
+      computeOverviewFit();
+      overviewPosition.copy(camera.position);
+      interaction.refreshFraming(aspect, overviewPosition, overviewLookAt, overviewZoom);
+    },
+    update(deltaSeconds) {
+      elapsed += deltaSeconds;
+      if (!prefersReducedMotion) {
+        for (const handle of machineHandles.values()) handle.update(elapsed);
+      }
+      // Always advances, unlike the ambient per-machine animation above:
+      // see interaction.ts's note on why a user-initiated camera move
+      // can't simply be skipped under reduced motion (it would leave the
+      // camera stuck at the overview position) — reduced motion instead
+      // makes interaction.ts's own tween duration near-instant.
+      interaction.update(deltaSeconds);
+      updateFocusPanelPosition();
+    },
+  });
+  activateFacility(LAUNDRY_FACILITY_KEY, container);
 
   function dispose(): void {
-    if (frameId !== null) cancelAnimationFrame(frameId);
-    window.removeEventListener("resize", handleResize);
+    unregisterFacility(LAUNDRY_FACILITY_KEY);
     interaction.dispose();
     overlay.dispose();
-    renderer.dispose();
-    container.removeChild(renderer.domElement);
     mountedScenes.delete(registeredScene);
+  }
+
+  return { dispose };
+}
+
+// Stage 4 — AA Room's own live-update subscriber registry, the exact
+// same one-Set-of-callbacks shape mountedScenes already uses for
+// machines above: index.astro's AA Room script calls
+// applyAaRoomStateToScene() from inside its own onAaRoomEvent/onOpen
+// handlers (src/lib/live-stream.ts), which is this module's only
+// subscriber to that path — no second EventSource, no second state
+// model, same reasoning as applyMachineToScene()'s own note.
+interface MountedAaRoomScene {
+  applyState(occupancy: AaRoomState["occupancy"], activities: AaRoomState["activities"], freshness: AaRoomState["freshness"]): void;
+}
+const mountedAaRoomScenes = new Set<MountedAaRoomScene>();
+
+export function applyAaRoomStateToScene(state: AaRoomState): void {
+  for (const scene of mountedAaRoomScenes) scene.applyState(state.occupancy, state.activities, state.freshness);
+}
+
+// Stage 4 — AA Room's mount: a second facility registered against the
+// exact same renderer-host.ts shared renderer Laundry's mount() already
+// uses. No second WebGLRenderer, no second requestAnimationFrame loop —
+// see renderer-host.ts and this file's own top-of-file note. Unlike
+// Laundry, AA Room has exactly one room (no hall-layout.ts-style
+// placement) and no interaction at all (see aa-room-status-look.ts and
+// notes/adr/0003-aa-room-live-state.md: the room has exactly one
+// reportable state, already fully expressed by the dashboard panel — no
+// per-object hover/focus/HUD is needed or wanted here).
+export function mountAaRoom(container: HTMLElement, initial: AaRoomState): HallViewHandle {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf6efe1); // --page, same as Laundry's
+
+  let aspect = Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+
+  const keyLight = new THREE.DirectionalLight(0xfff4e0, 2.2);
+  keyLight.position.set(4, 6, 3);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.camera.left = -4;
+  keyLight.shadow.camera.right = 4;
+  keyLight.shadow.camera.top = 4;
+  keyLight.shadow.camera.bottom = -4;
+  keyLight.shadow.camera.near = 1;
+  keyLight.shadow.camera.far = 15;
+  keyLight.shadow.bias = -0.002;
+  scene.add(keyLight);
+
+  const hemiLight = new THREE.HemisphereLight(0xfdf6e6, 0x8a6a4a, 0.6);
+  scene.add(hemiLight);
+
+  const room = buildAaRoom();
+  scene.add(room.group);
+  room.applyState(initial.occupancy, initial.activities, initial.freshness);
+
+  const overviewLookAt = new THREE.Vector3();
+  let overviewZoom = 1;
+  function computeOverviewFit(): void {
+    const corners = boundsCorners([room.group]);
+    const fit = fitBoundsToRect(
+      corners,
+      ISO_VIEW_DIRECTION,
+      new THREE.Vector3(0, 1, 0),
+      aspect,
+      -OVERVIEW_FILL,
+      OVERVIEW_FILL,
+      -OVERVIEW_FILL,
+      OVERVIEW_FILL,
+    );
+    overviewLookAt.copy(fit.lookAt);
+    overviewZoom = 1 / fit.frustumHalfHeight;
+    camera.left = -1 * aspect;
+    camera.right = 1 * aspect;
+    camera.top = 1;
+    camera.bottom = -1;
+    camera.position.copy(overviewLookAt).addScaledVector(ISO_VIEW_DIRECTION, CAMERA_DISTANCE);
+    camera.zoom = overviewZoom;
+    camera.lookAt(overviewLookAt);
+    camera.updateProjectionMatrix();
+  }
+  computeOverviewFit();
+
+  const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  let elapsed = 0;
+
+  const registeredScene: MountedAaRoomScene = {
+    applyState(occupancy, activity, freshness) {
+      room.applyState(occupancy, activity, freshness);
+      if (prefersReducedMotion) {
+        // Stage 4 requirement — under reduced motion, every loop (TV
+        // flicker, pool/table-tennis motion, figure idle sway) stops at
+        // a single static pose/frame that still correctly shows the
+        // current state, rather than animating to get there. Calling
+        // update() once immediately (instead of never) gives every loop
+        // its very first, state-correct frame — e.g. the TV's
+        // emissiveIntensity is set from the flicker formula's value at
+        // elapsed=0, not left at 0 (which would look "off" even when
+        // tvOn is true) and not continuously recomputed every frame
+        // (which would be the animation reduced motion is turned off
+        // for). The render loop below never calls update() again while
+        // reduced motion is on, so this one call is also the LAST.
+        room.update(0);
+      }
+    },
+  };
+  mountedAaRoomScenes.add(registeredScene);
+
+  registerFacility(AA_ROOM_FACILITY_KEY, {
+    scene,
+    camera,
+    resize(width, height) {
+      aspect = width / Math.max(height, 1);
+      computeOverviewFit();
+    },
+    update(deltaSeconds) {
+      if (prefersReducedMotion) return; // see applyState's own note above — one static pose, not a frozen-mid-loop frame
+      elapsed += deltaSeconds;
+      room.update(elapsed);
+    },
+  });
+  activateFacility(AA_ROOM_FACILITY_KEY, container);
+
+  function dispose(): void {
+    unregisterFacility(AA_ROOM_FACILITY_KEY);
+    mountedAaRoomScenes.delete(registeredScene);
   }
 
   return { dispose };
