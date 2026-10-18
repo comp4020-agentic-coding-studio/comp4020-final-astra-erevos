@@ -431,12 +431,12 @@ export function buildMachineMesh(
     return color.setHSL(hsl.h, hsl.s * (1 - amount), hsl.l);
   }
 
-  let currentLook = lookForStatus(initialStatus);
+  let currentLook = lookForStatus(initialStatus, type);
   let hovered = false;
   let focused = false;
 
   function setStatus(status: MachineStatus): void {
-    const look = lookForStatus(status);
+    const look = lookForStatus(status, type);
     currentLook = look;
     bodyMaterial.color = applyDesaturation(new THREE.Color(look.bodyColor), look.desaturate);
     bodyMaterial.roughness = look.roughness;

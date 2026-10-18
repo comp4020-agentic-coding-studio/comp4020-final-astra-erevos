@@ -9,8 +9,25 @@
 // src/pages/index.astro's STATUS_META already encodes (available/
 // out-of-order carry real severity; in-use is neutral-occupied, not a
 // warning; unknown is an absence of information, not a color) — not a
-// new vocabulary invented for the 3D view.
-import type { MachineStatus } from "../types.ts";
+// new vocabulary invented for the 3D view. This is a 3D-only visual
+// palette: it never feeds back into STATUS_META, the dashboard badge
+// colors, SSE payloads, or report logic — those are untouched and still
+// define the real status semantics this module only re-renders.
+//
+// Stage 5 — available's look is now a clear, soft moss green rather than
+// a warm near-white: at five-room overview scale (each room ~51% of its
+// old standalone size — see hall-layout.ts), the near-white read too
+// close to unknown's muted grey-tan to tell apart at a glance. Also,
+// in-use is now looked up per MACHINE TYPE, not just per status — a
+// washer in-use stays the existing blue (the water association was
+// already right), while a dryer in-use gets its own warm amber/burnt-
+// orange (a heat association), so overview reads as a fourth
+// at-a-glance category (green/blue/amber/red/grey) instead of lumping
+// both machine types' "working" state under one color. This is the one
+// place this module takes `type` as an input — out-of-order/unknown
+// looks are still the same regardless of machine type, since nothing
+// about those two statuses is type-specific.
+import type { MachineStatus, MachineType } from "../types.ts";
 
 export interface StatusLook {
   /** Body material base color (hex, matches the existing CSS custom properties' hue family). */
@@ -43,10 +60,13 @@ export interface StatusLook {
 // Hex colors pulled from the same warm palette already defined in
 // src/pages/index.astro's CSS custom properties (--status-good,
 // --status-in-use, --status-critical, --ink-muted) so the 3D view reads
-// as the same app, not a separately invented mood.
-const STATUS_LOOKS: Record<MachineStatus, StatusLook> = {
+// as the same app, not a separately invented mood — except available's
+// body/LED (see the Stage 5 note above) and in-use's dryer variant
+// (there is no existing CSS token for "dryer heat," since the dashboard
+// badge is intentionally type-agnostic — a new, 3D-only color).
+const STATUS_LOOKS: Record<Exclude<MachineStatus, "in-use">, StatusLook> = {
   available: {
-    bodyColor: 0xf6ecd9, // warm near-white, calm
+    bodyColor: 0x5aae68, // soft moss green — clearly distinct from unknown's grey-tan at overview scale
     drumColor: 0x2c2115,
     drumEmissive: 0x000000,
     drumEmissiveIntensity: 0,
@@ -59,21 +79,6 @@ const STATUS_LOOKS: Record<MachineStatus, StatusLook> = {
     ledBlinkHz: 0,
     ledFlicker: false,
     jitter: false,
-  },
-  "in-use": {
-    bodyColor: 0x3987e5, // --status-in-use
-    drumColor: 0x1a4a8a,
-    drumEmissive: 0x3987e5,
-    drumEmissiveIntensity: 0.35,
-    roughness: 0.25,
-    desaturate: 0,
-    spinning: true,
-    hazard: false,
-    ledColor: 0x3987e5,
-    ledBaseIntensity: 0.9,
-    ledBlinkHz: 1.4, // a working machine's "active" blink — brisk, not alarming
-    ledFlicker: false,
-    jitter: true,
   },
   "out-of-order": {
     bodyColor: 0xd03b3b, // --status-critical
@@ -107,6 +112,49 @@ const STATUS_LOOKS: Record<MachineStatus, StatusLook> = {
   },
 };
 
-export function lookForStatus(status: MachineStatus): StatusLook {
+// Stage 5 — in-use is the one status whose look now depends on machine
+// type, not just status: a washer in-use keeps the original blue (the
+// water association already fit), a dryer in-use gets a deliberately
+// deep/burnt amber-orange, NOT a bright yellow-orange — chosen specifically
+// to stay visually distinct from the out-of-order hazard-tape band's own
+// yellow/black stripes (see machine-mesh.ts's buildHazardTexture), so a
+// glance across the room never confuses "a dryer is running" with "a
+// machine is taped off." Both share the same blink/jitter/spin shape;
+// only the color values differ per type.
+const IN_USE_LOOKS: Record<MachineType, StatusLook> = {
+  washer: {
+    bodyColor: 0x3987e5, // --status-in-use, unchanged — water association
+    drumColor: 0x1a4a8a,
+    drumEmissive: 0x3987e5,
+    drumEmissiveIntensity: 0.35,
+    roughness: 0.25,
+    desaturate: 0,
+    spinning: true,
+    hazard: false,
+    ledColor: 0x3987e5,
+    ledBaseIntensity: 0.9,
+    ledBlinkHz: 1.4, // a working machine's "active" blink — brisk, not alarming
+    ledFlicker: false,
+    jitter: true,
+  },
+  dryer: {
+    bodyColor: 0xd9822b, // deep burnt-amber — heat association, deliberately darker than the hazard tape's yellow
+    drumColor: 0x5c3312,
+    drumEmissive: 0xd9822b,
+    drumEmissiveIntensity: 0.35,
+    roughness: 0.25,
+    desaturate: 0,
+    spinning: true,
+    hazard: false,
+    ledColor: 0xd9822b,
+    ledBaseIntensity: 0.9,
+    ledBlinkHz: 1.4,
+    ledFlicker: false,
+    jitter: true,
+  },
+};
+
+export function lookForStatus(status: MachineStatus, type: MachineType): StatusLook {
+  if (status === "in-use") return IN_USE_LOOKS[type];
   return STATUS_LOOKS[status];
 }
