@@ -18,6 +18,16 @@ export const GET: APIRoute = ({ request }) => {
 
   const stream = new ReadableStream({
     start(controller) {
+      // Send something immediately so Node actually flushes the response
+      // headers/first bytes on connect, instead of holding them back until
+      // the first real broadcast happens to come along (observed on Fly: a
+      // quiet connection got zero bytes for several seconds). A bare SSE
+      // comment line is spec-legal, carries no `data:`/event name, and
+      // EventSource silently ignores it — it never reaches the "machine"
+      // listener in src/pages/index.astro, only triggers the native "open"
+      // event once headers arrive, which is exactly the point.
+      controller.enqueue(encoder.encode(": connected\n\n"));
+
       unsubscribe = subscribe((machine: Machine) => {
         try {
           controller.enqueue(encoder.encode(`event: machine\ndata: ${JSON.stringify(machine)}\n\n`));
