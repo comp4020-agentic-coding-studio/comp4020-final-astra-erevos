@@ -91,7 +91,20 @@ const CAMERA_DISTANCE = 10; // arbitrary — orthographic apparent size depends 
 // correctness was checked with, not chosen by eye.
 const OVERVIEW_FILL = 0.9;
 
-export function mount(container: HTMLElement, machines: Machine[]): HallViewHandle {
+// Stage 6 — the workbench-layout page wants the right-hand information
+// panel to highlight and scroll to whichever machine's 3D model is
+// currently focused. Rather than have index.astro reach into this
+// module's internals, mount() takes an optional callback invoked with
+// the focused machine's id (or null on return-to-overview) — the same
+// "outward notification" shape applyMachineToScene() already uses for
+// the opposite direction (dashboard -> scene). This is purely additive:
+// it only ever READS the existing focus state out to the caller, it
+// never changes what hover/focus/HUD/camera framing actually do.
+export function mount(
+  container: HTMLElement,
+  machines: Machine[],
+  onFocusChange?: (machineId: string | null) => void,
+): HallViewHandle {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf6efe1); // --page
 
@@ -278,6 +291,7 @@ export function mount(container: HTMLElement, machines: Machine[]): HallViewHand
       onFocusChange(target) {
         focusedTarget = target;
         overlay.showFocus(target?.machine ?? null);
+        onFocusChange?.(target?.id ?? null);
         // Stage 3 fix — only the focused machine's own room stays
         // visible while focused; every other room (and its machines)
         // is hidden, so a front-row room can never occlude a back-row

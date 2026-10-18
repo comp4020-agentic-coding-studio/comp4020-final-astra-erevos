@@ -144,14 +144,43 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       }
 
       main {
-        max-width: 78rem;
+        max-width: 100rem;
         margin: 0 auto;
-        padding: 1.5rem 1.25rem 4rem;
+        padding: 1.25rem 1.25rem 1.5rem;
+      }
+
+      /* Stage 6 — the desktop workbench layout: header/tabs stay their
+         natural height, the workbench (hall-view-pane + info-panel)
+         takes up the rest of the viewport and scrolls internally rather
+         than letting the whole page scroll. Below 64rem (tablet/phone)
+         this is skipped entirely — main just flows normally, exactly as
+         it always has, which is the deliberate "mobile fallback is the
+         existing single-column layout" decision carried over from the
+         Stage 3 five-room-layout planning. */
+      @media (min-width: 64rem) {
+        main {
+          /* height, not min-height: this has to be a hard CAP so the
+             flex/grid chain below (.workbench -> .hall-view-pane/
+             .info-panel -> .halls) is actually constrained and .halls
+             becomes the thing that scrolls — a min-height lets main
+             grow to fit its content instead, which defeats the whole
+             "page doesn't scroll" goal (confirmed: with min-height,
+             .halls's scrollHeight === clientHeight, i.e. nothing was
+             actually being clipped). */
+          height: 100dvh;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
       }
 
       header.hero {
         text-align: center;
         padding: 1.5rem 1rem 1rem;
+        flex: none;
+      }
+      @media (min-width: 64rem) {
+        header.hero { padding: 0.75rem 1rem 0.5rem; }
       }
       header.hero h1 {
         margin: 0;
@@ -178,14 +207,94 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         color: var(--ink-muted);
       }
 
+      /* --- Stage 6: facility tabs — Toad Live's original concept was
+         every shared space in Toad Hall, not laundry specifically.
+         Laundry is the only real, data-backed tab today; the other six
+         are visible so the eventual shape of the app is legible, but are
+         inert — no route, no placeholder page, no invented data. Plain
+         <button disabled> for those (not a styled-to-look-clickable
+         link to nowhere), so assistive tech and a mouse both get an
+         honest "not available yet" signal for free. --- */
+      .facility-tabs {
+        flex: none;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.4rem;
+        padding: 0 1rem 0.75rem;
+      }
+      .facility-tab {
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 600;
+        padding: 0.45rem 0.9rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--ink-secondary);
+        cursor: default;
+      }
+      .facility-tab[aria-current="page"] {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--surface);
+        cursor: default;
+      }
+      .facility-tab:disabled {
+        color: var(--ink-muted);
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      /* --- Stage 6: the 70/30 desktop workbench — left column is the
+         enlarged Hall View, right column is the relocated (not
+         rebuilt — see index.astro's own top-of-file note) summary +
+         machine list. minmax() on the right column's fr keeps it from
+         being crushed unreadable on a narrower desktop width, rather
+         than a literal 70%/30% split. Below 64rem this entire grid
+         collapses to a single flowing column (hall-view-pane, then
+         info-panel, in source order) — the EXACT markup/CSS the page
+         already had before Stage 6, now reached via a media query
+         instead of being the only layout. --- */
+      .workbench {
+        flex: none;
+      }
+      @media (min-width: 64rem) {
+        .workbench {
+          flex: 1 1 auto;
+          min-height: 0; /* lets the grid children's own min-height:0 rule actually apply, in a flex parent */
+          display: grid;
+          grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
+          gap: 1.25rem;
+          padding: 0 1.25rem 1.25rem;
+        }
+      }
+
+      .hall-view-pane {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
       /* --- Live Hall View: a visual layer, never load-bearing for any
-         fact — see the aria-hidden note on the section itself. Sized
-         generously but capped so it reads as "a window into the Hall,"
-         not a full-bleed hero image competing with the dashboard below
-         it. --- */
+         fact — see the aria-hidden note on the section itself. On
+         mobile/tablet this keeps its original modest capped size (a
+         "window into the Hall," not competing with the info below it);
+         on desktop it becomes the page's actual primary area, filling
+         essentially all of the left column's available height. --- */
       .hall-view {
         max-width: 44rem;
         margin: 0 auto 1.5rem;
+      }
+      @media (min-width: 64rem) {
+        .hall-view {
+          max-width: none;
+          margin: 0;
+          flex: 1 1 auto;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
       }
       .hall-view-canvas {
         position: relative; /* anchors the hover/focus overlays below */
@@ -197,6 +306,21 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         box-shadow: 0 2px 10px rgba(44, 33, 21, 0.08);
         background: var(--page);
       }
+      @media (min-width: 64rem) {
+        .hall-view-canvas {
+          flex: 1 1 auto;
+          min-height: 0;
+          /* The 3D view's own fixed isometric camera/zoom is recomputed
+             from the container's real aspect ratio on resize (see
+             scene.ts's handleResize -> computeOverviewFit) — dropping
+             the fixed aspect-ratio here and letting flex give this
+             element whatever height is actually available is exactly
+             the resize case that path already handles, not a new one. */
+          aspect-ratio: auto;
+          width: 100%;
+          height: auto;
+        }
+      }
       .hall-view-canvas canvas {
         display: block;
         width: 100% !important;
@@ -207,10 +331,32 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         text-align: center;
         font-size: 0.78rem;
         color: var(--ink-muted);
+        flex: none;
       }
 
-      /* --- summary stat row: stays a compact, centred band even though
-         the page below it now uses the full desktop width --- */
+      /* --- Stage 6: the right-hand info panel. On desktop this is a
+         flex column of its own: the summary band is `flex: none` (never
+         scrolls away) and .halls is the one scrolling region beneath it
+         — exactly the "summary pinned, machine list scrolls"
+         requirement. On mobile/tablet info-panel has no special
+         treatment at all; it's just a plain block in the normal page
+         flow, identical to how summary/halls always rendered before
+         Stage 6. --- */
+      @media (min-width: 64rem) {
+        .info-panel {
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1rem;
+        }
+      }
+
+      /* --- summary stat row: stays a compact, centred band on
+         mobile/tablet; on desktop it's full-width within the info panel
+         and pinned (see .info-panel's own note). --- */
       .summary {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -220,6 +366,13 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       }
       @media (max-width: 30rem) {
         .summary { grid-template-columns: repeat(2, 1fr); }
+      }
+      @media (min-width: 64rem) {
+        .summary {
+          flex: none;
+          max-width: none;
+          margin: 0 0 1rem;
+        }
       }
       .stat {
         background: var(--surface);
@@ -256,10 +409,60 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       .stat.out-of-order .dot { background: var(--status-critical); }
       .stat.unknown .dot { background: var(--ink-muted); }
 
+      /* --- Stage 7: block tabs — filters WHICH of the already-rendered
+         .hall blocks below are visible, nothing else. Visually distinct
+         from .facility-tabs (smaller, no pill shape) so the two tab
+         rows don't read as the same control at a glance, while still
+         using the same --accent active-state language as the rest of
+         the app's selected/active states (e.g. the facility tab, the
+         report-form's focus ring). --- */
+      .block-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-bottom: 1rem;
+        flex: none;
+      }
+      .block-tab {
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 0.35rem 0.75rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--ink-secondary);
+        cursor: pointer;
+      }
+      .block-tab:hover {
+        background: var(--surface-alt);
+      }
+      .block-tab[aria-current="true"] {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--surface);
+      }
+      .block-tab:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      /* Mobile/tablet: no special treatment beyond the tab row's own
+         flex-wrap above — it wraps onto a second line like any other
+         wrapping row, rather than needing a separate horizontal-scroll
+         mobile pattern (five short labels wrap to two lines comfortably
+         even at a narrow phone width). */
+
       /* --- zones: a Block is a location label, not another card. Flex +
          justify-content:center rather than grid so a trailing row of two
          (a 3+2 layout across five blocks) sits centred as a balanced group
-         instead of stretching or reading as a "missing" third card. --- */
+         instead of stretching or reading as a "missing" third card. ---
+         Stage 7: block-tabs filtering is the SAME behavior on every
+         viewport (only the selected block's .hall is unhidden at a
+         time) — this flex-wrap layout is what used to matter for the
+         five-blocks-at-once case and is now mostly moot in practice
+         (there's normally just one visible .hall), but is left as-is
+         rather than special-cased, since a hidden sibling naturally
+         contributes nothing to a flex/wrap layout either way. --- */
       .halls {
         display: flex;
         flex-wrap: wrap;
@@ -272,6 +475,25 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       }
       @media (max-width: 26rem) {
         .hall { flex-basis: 100%; max-width: none; }
+      }
+      /* Stage 6 — inside the narrow desktop info panel, a multi-column
+         wrapping layout has no room to wrap into, so .halls becomes a
+         single vertical column (one block per real location) and is the
+         ONE element inside .info-panel that actually scrolls — summary
+         above it stays fixed in place (see .info-panel's own note). */
+      @media (min-width: 64rem) {
+        .halls {
+          flex: 1 1 auto;
+          min-height: 0;
+          overflow-y: auto;
+          display: block;
+          gap: 0;
+        }
+        .hall {
+          max-width: none;
+          margin-bottom: 1.5rem;
+        }
+        .hall:last-child { margin-bottom: 0; }
       }
       .zone-label {
         display: flex;
@@ -383,6 +605,22 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         );
       }
       .machine--broken .machine-head { margin-top: 0.15rem; }
+
+      /* Stage 6 — clicking a machine in the 3D view scrolls its matching
+         card into view here and marks it with this class (see the
+         dashboard script's onHallFocusChange). Deliberately a ring, not
+         a background-color swap — out-of-order's own background is
+         already meaningful (the hazard gradient), so this has to read
+         as "this one" without competing with or overriding any
+         existing status color. Transition is brief and respects
+         reduced-motion like every other animated accent in this app. */
+      .machine--highlighted {
+        box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(44, 33, 21, 0.1);
+        transition: box-shadow 0.2s ease;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .machine--highlighted { transition: none; }
+      }
 
       .remaining {
         margin: 0.5rem 0 0;
@@ -657,29 +895,60 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       <header class="hero">
         <h1>Toad Live</h1>
         <p>
-          Laundry across Toad Hall's five blocks — reported by residents, not
+          Shared spaces across Toad Hall — reported by residents, not
           sensors. See <a href="/readme/">what "good" means here</a>.
         </p>
         <p class="identity">You're reporting as <strong>{pseudonym}</strong></p>
       </header>
 
-      {/* Live Hall View — Stage 3: all five real laundry rooms, a visual
-          layer above the dashboard, never a replacement for it.
-          aria-hidden because every fact it shows is already stated as
-          accessible text below; a screen-reader user loses nothing by
-          this section being skipped entirely. Initialized once from
-          this page load's real state via data-machines, then kept live
-          by the dashboard script's existing applyMachineUpdate() below
-          (see scene.ts's applyMachineToScene note). */}
-      <section
-        class="hall-view"
-        aria-hidden="true"
-        data-machines={JSON.stringify(hallViewMachines)}
-      >
-        <div class="hall-view-canvas" id="hall-view-canvas"></div>
-        <p class="hall-view-caption">Toad Hall — live laundry miniature</p>
-      </section>
+      {/* Stage 6 — facility tabs. Toad Live's original concept was every
+          shared space in the Hall, not laundry specifically; Laundry is
+          the only tab backed by real data today. The other six are
+          plain disabled buttons — visible so the app's intended shape is
+          legible, inert so nothing here implies a working page or
+          invented data behind them. aria-current="page" on the one real
+          tab, not a class alone, so assistive tech gets the same signal
+          sighted users get from its filled-in style. */}
+      <nav class="facility-tabs" aria-label="Shared spaces">
+        <button type="button" class="facility-tab" aria-current="page">Laundry</button>
+        <button type="button" class="facility-tab" disabled>AA Room</button>
+        <button type="button" class="facility-tab" disabled>Otter Room</button>
+        <button type="button" class="facility-tab" disabled>Rabbit Room</button>
+        <button type="button" class="facility-tab" disabled>Badger Room</button>
+        <button type="button" class="facility-tab" disabled>Rat Room</button>
+        <button type="button" class="facility-tab" disabled>Weasel Room</button>
+      </nav>
 
+      {/* Stage 6 — the 70/30 desktop workbench: hall-view-pane (left) and
+          info-panel (right) below are a pure CSS reshaping of exactly
+          the same two sections this page already had — the hall-view
+          <section> and the summary/halls <section>s are UNCHANGED
+          markup, just re-parented into this grid (see index.astro's own
+          CSS notes on .workbench/.hall-view-pane/.info-panel). Below
+          64rem this grid collapses and these wrapper divs have no
+          layout effect at all, so mobile/tablet renders source-order
+          identically to how the page always has. */}
+      <div class="workbench">
+        <div class="hall-view-pane">
+          {/* Live Hall View — Stage 3: all five real laundry rooms, a visual
+              layer above the dashboard, never a replacement for it.
+              aria-hidden because every fact it shows is already stated as
+              accessible text below; a screen-reader user loses nothing by
+              this section being skipped entirely. Initialized once from
+              this page load's real state via data-machines, then kept live
+              by the dashboard script's existing applyMachineUpdate() below
+              (see scene.ts's applyMachineToScene note). */}
+          <section
+            class="hall-view"
+            aria-hidden="true"
+            data-machines={JSON.stringify(hallViewMachines)}
+          >
+            <div class="hall-view-canvas" id="hall-view-canvas"></div>
+            <p class="hall-view-caption">Toad Hall — live laundry miniature</p>
+          </section>
+        </div>
+
+        <div class="info-panel">
       <section class="summary" aria-label="Laundry summary">
         {summary.map(({ key, count }) => (
           <div class:list={["stat", key]}>
@@ -689,9 +958,30 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         ))}
       </section>
 
+      {/* Stage 7 — block tabs: a pure VIEW filter over this same markup,
+          not a second machine list. Each .hall keeps data-location so
+          the dashboard script below can show/hide whole <article>s by
+          toggling [hidden] — no machine, status, or summary data is
+          read, duplicated, or recomputed by that script; it only ever
+          flips which of these already-rendered blocks the browser
+          paints. Mirrors the facility-tabs' own aria-current="page"
+          pattern for the active indicator. */}
+      <nav class="block-tabs" aria-label="Filter by block">
+        {LOCATIONS.map((location, index) => (
+          <button
+            type="button"
+            class="block-tab"
+            data-location={location}
+            aria-current={index === 0 ? "true" : undefined}
+          >
+            {location}
+          </button>
+        ))}
+      </nav>
+
       <section class="halls">
-        {LOCATIONS.map((location) => (
-          <article class="hall">
+        {LOCATIONS.map((location, index) => (
+          <article class="hall" data-location={location} hidden={index !== 0}>
             <h2 class="zone-label">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 21s-6.5-5.8-6.5-11A6.5 6.5 0 0 1 18.5 10c0 5.2-6.5 11-6.5 11z" />
@@ -772,6 +1062,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           </article>
         ))}
       </section>
+        </div>
+      </div>
     </main>
 
     {/* Live Hall View mount — its own inline script block, still
@@ -787,12 +1079,69 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       import { mount } from "../lib/hall-view/scene.ts";
       import type { Machine } from "../lib/types.ts";
 
+      // Stage 7 — block tabs: a pure VIEW filter over the existing
+      // .hall markup (see that <nav>'s own template-side note). This
+      // reads/writes only DOM attributes already rendered server-side —
+      // no machine or status data is read here, so this can live
+      // entirely alongside the mount() call below rather than needing
+      // any bridge to the second script block's applyMachineUpdate()
+      // (which remains the only machine-data writer, untouched).
+      const blockTabs = document.querySelectorAll<HTMLButtonElement>(".block-tab");
+      const hallsByLocation = new Map<string, HTMLElement>(
+        Array.from(document.querySelectorAll<HTMLElement>(".hall")).map((hall) => [
+          hall.dataset.location!,
+          hall,
+        ]),
+      );
+
+      function selectBlock(location: string): void {
+        for (const [loc, hall] of hallsByLocation) hall.hidden = loc !== location;
+        for (const tab of blockTabs) {
+          if (tab.dataset.location === location) tab.setAttribute("aria-current", "true");
+          else tab.removeAttribute("aria-current");
+        }
+      }
+
+      blockTabs.forEach((tab) => {
+        tab.addEventListener("click", () => selectBlock(tab.dataset.location!));
+      });
+
       const container = document.getElementById("hall-view-canvas");
       const section = document.querySelector<HTMLElement>(".hall-view");
       if (container && section) {
         try {
           const machines = JSON.parse(section.dataset.machines!) as Machine[];
-          mount(container, machines);
+          // Stage 6 — the only new behavior mount() is given here: when
+          // a machine is focused/unfocused in the 3D view, scroll its
+          // matching info-panel card into view and mark it highlighted.
+          // Deliberately NOT opening its <details class="report"> —
+          // focusing a machine is "look at this one," not "I'm about to
+          // report its status," so the report control stays collapsed
+          // until the resident explicitly opens it themselves.
+          //
+          // Stage 7 — also switches the right panel's block tab to the
+          // focused machine's own block first, so its card is actually
+          // visible (not hidden by a different block's filter) before
+          // scrolling/highlighting it. On return to overview
+          // (machineId === null), the current block tab is deliberately
+          // left as-is — the brief's own "focus exiting can leave the
+          // current Block tab unchanged" requirement — only the
+          // highlight is cleared.
+          const prefersReducedMotion =
+            window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+          let highlightedCard: HTMLElement | null = null;
+          mount(container, machines, (machineId) => {
+            highlightedCard?.classList.remove("machine--highlighted");
+            highlightedCard = null;
+            if (!machineId) return;
+            const card = document.querySelector<HTMLElement>(`.machine[data-machine="${machineId}"]`);
+            if (!card) return;
+            const hall = card.closest<HTMLElement>(".hall");
+            if (hall?.dataset.location) selectBlock(hall.dataset.location);
+            card.classList.add("machine--highlighted");
+            highlightedCard = card;
+            card.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion ? "auto" : "smooth" });
+          });
         } catch {
           // WebGL unavailable, or anything else went wrong building the
           // scene — the dashboard above and below is a complete
