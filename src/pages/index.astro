@@ -1623,7 +1623,24 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         ).then((machines) => machines.forEach(applyMachineUpdate));
       });
 
-      document.querySelectorAll<HTMLFormElement>(".report-form").forEach((form) => {
+      // Scoped to `.machines .report-form`, not a bare `.report-form` —
+      // AA Room's own report form (src/pages/index.astro's AA Room
+      // section) shares the `report-form` class purely for its CSS
+      // styling (form.report-form's shared visual treatment, further
+      // down in this file's <style>), but it is NOT a machine form and
+      // has no `status`/`minutes` fields. A real-browser check caught
+      // this directly: the unscoped selector below used to also match
+      // AA Room's form, attaching this Machine-specific submit handler
+      // to it too — every AA Room report then threw
+      // "Cannot read properties of null (reading 'value')" from
+      // form.elements.namedItem("status") finding nothing, a real
+      // uncaught exception on every AA Room submission (silent in effect
+      // only because AA Room's own, separate handler still ran and
+      // completed independently — addEventListener listeners don't
+      // short-circuit each other). `.machines` is the Laundry-only
+      // wrapper around each block's machine cards; the AA Room form is
+      // never inside it.
+      document.querySelectorAll<HTMLFormElement>(".machines .report-form").forEach((form) => {
         form.addEventListener("submit", async (event) => {
           event.preventDefault();
           const id = form.dataset.id;
