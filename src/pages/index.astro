@@ -1,5 +1,7 @@
 ---
 import { LOCATIONS, listMachines, type Machine, type MachineStatus, type MachineType } from "../lib/db.ts";
+import { getAaRoom } from "../lib/aa-room.ts";
+import type { AaRoomActivity, AaRoomOccupancy } from "../lib/types.ts";
 import {
   COOKIE_NAME,
   COOKIE_MAX_AGE_SECONDS,
@@ -39,6 +41,13 @@ const byLocation = new Map(
   LOCATIONS.map((loc) => [loc, machines.filter((m) => m.location === loc)]),
 );
 
+// Stage 2 (AA Room): no SSE yet — this is a plain page-load read of the
+// one canonical row, the same way `machines` above is. The panel below
+// renders directly from this; nothing here invents a second client-side
+// state model to keep in sync with it. See
+// notes/adr/0003-aa-room-live-state.md.
+const aaRoom = getAaRoom();
+
 // Stage 1 of the Live Hall View (see PROCESS.md): initialized from this
 // page load's real machine state. Deliberately no SSE wiring yet at
 // Stage 1 — that was Stage 2. Stage 3: all five real locations, not just
@@ -66,6 +75,50 @@ const summary = [
   { key: "out-of-order" as const, count: machines.filter((m) => m.status === "out-of-order").length },
   { key: "unknown" as const, count: machines.filter((m) => m.status === "unknown").length },
 ];
+
+// AA Room's own status palette — occupied reads as the "something to see
+// here" state (categorical blue, same identity as Laundry's in-use: a
+// fact, not a warning), empty is good/available-coded, unknown is the
+// same no-saturated-colour absence-of-information treatment as Laundry's
+// unknown. See notes/adr/0003-aa-room-live-state.md, Decision 2 — this is
+// occupancy's full value set; activity is a separate, optional label
+// layered on top, not a second status to colour.
+const AA_ROOM_STATUS_META: Record<AaRoomOccupancy, { label: string; icon: string; class: string }> = {
+  empty: { label: "Empty", icon: "✓", class: "status-available" },
+  occupied: { label: "Occupied", icon: "●", class: "status-in-use" },
+  unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+};
+
+const AA_ROOM_ACTIVITY_META: Record<AaRoomActivity, { label: string }> = {
+  tv: { label: "TV" },
+  pool: { label: "Pool" },
+  "table-tennis": { label: "Table tennis" },
+  event: { label: "Event" },
+};
+
+// Mirrors confirmedLabel() above exactly — a separate copy, not a shared
+// function, since the two facilities' underlying rows are different
+// shapes (Machine vs AaRoomState) and nothing is gained by forcing one
+// function to accept either.
+function aaRoomConfirmedLabel(confirmedAt: number | null): string {
+  if (confirmedAt === null) return "never reported";
+  const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+  if (minutes < 1) return "confirmed just now";
+  return `confirmed ${minutes} min ago`;
+}
+
+// Freshness is its own line, deliberately separate from the occupancy
+// badge — see the ADR, Decision 3: "stale" is a presentation-only
+// judgment about an otherwise-unchanged occupancy value, and "no fresh
+// observation" (freshness === null) is itself worth saying plainly rather
+// than only implied by occupancy already reading "Unknown".
+function aaRoomFreshnessLabel(freshness: "fresh" | "stale" | null): { text: string; class: string } | null {
+  if (freshness === "fresh") return null; // fresh needs no extra caveat — confirmedLabel alone is enough
+  if (freshness === "stale") {
+    return { text: "this may be out of date", class: "aa-freshness--stale" };
+  }
+  return { text: "no recent enough report to show", class: "aa-freshness--unknown" };
+}
 
 function confirmedLabel(confirmedAt: number | null): string {
   if (confirmedAt === null) return "never reported";
@@ -209,12 +262,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
 
       /* --- Stage 6: facility tabs — Toad Live's original concept was
          every shared space in Toad Hall, not laundry specifically.
-         Laundry is the only real, data-backed tab today; the other six
-         are visible so the eventual shape of the app is legible, but are
-         inert — no route, no placeholder page, no invented data. Plain
-         <button disabled> for those (not a styled-to-look-clickable
-         link to nowhere), so assistive tech and a mouse both get an
-         honest "not available yet" signal for free. --- */
+         Laundry and (Stage 2) AA Room are real, data-backed tabs; the
+         other five are visible so the eventual shape of the app is
+         legible, but are inert — no route, no placeholder page, no
+         invented data. Plain <button disabled> for those (not a
+         styled-to-look-clickable link to nowhere), so assistive tech and
+         a mouse both get an honest "not available yet" signal for free.
+         The two real tabs are plain, clickable, non-disabled buttons —
+         cursor:pointer below overrides the default cursor:default only
+         for them. --- */
       .facility-tabs {
         flex: none;
         display: flex;
@@ -234,11 +290,42 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         color: var(--ink-secondary);
         cursor: default;
       }
+      .facility-tab[data-facility] {
+        cursor: pointer;
+      }
+      /* Inactive-hover: light surface + the existing dark ink-secondary
+         text this tab already has outside hover — never touches `color`
+         at all, so there's nothing for it to get wrong. */
+      .facility-tab[data-facility]:not([aria-current="page"]):hover {
+        background: var(--surface-alt);
+      }
+      .facility-tab:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
       .facility-tab[aria-current="page"] {
         background: var(--accent);
         border-color: var(--accent);
         color: var(--surface);
-        cursor: default;
+        cursor: pointer;
+      }
+      /* Active-hover: a real browser check found the OLD unconditional
+         `[data-facility]:hover { background: var(--surface-alt) }` rule
+         (specificity (0,3,0), beating [aria-current="page"]'s (0,2,0) on
+         background alone) could win against this very rule while never
+         touching `color` — leaving aria-current's white text sitting on
+         the hover rule's near-white background: white-on-white,
+         functionally invisible. Fixed two ways together, not just one:
+         the inactive-hover rule above now explicitly excludes
+         [aria-current="page"] so it can never apply here regardless of
+         specificity, AND this rule gives the active tab its own explicit
+         hover treatment (a darker green, not a lighter one, since its
+         text is already white) so hovering the currently-active tab has
+         a correct, deliberate look rather than depending on no other
+         rule ever reaching it. */
+      .facility-tab[aria-current="page"]:hover {
+        background: var(--accent-strong);
+        border-color: var(--accent-strong);
       }
       .facility-tab:disabled {
         color: var(--ink-muted);
@@ -274,6 +361,20 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         display: flex;
         flex-direction: column;
         min-height: 0;
+      }
+
+      /* Stage 2 (AA Room) — same transparent-flex-wrapper treatment as
+         .info-panel > .facility-view above: .hall-view used to be a
+         direct flex child of .hall-view-pane, and is now one level
+         deeper inside .facility-view[data-facility="laundry"]/["aa-room"].
+         Both wrappers get full flex-child sizing so whichever one is
+         visible fills .hall-view-pane exactly as .hall-view/
+         .aa-room-placeholder already expect to. */
+      .hall-view-pane > .facility-view {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        flex: 1 1 auto;
       }
 
       /* --- Live Hall View: a visual layer, never load-bearing for any
@@ -351,6 +452,25 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           border: 1px solid var(--border);
           border-radius: 16px;
           padding: 1rem;
+        }
+
+        /* Stage 2 (AA Room) — info-panel's children used to be .summary
+           and .halls directly; they're now wrapped one level deeper in
+           .facility-view[data-facility="laundry"] so the facility-tab
+           script has one element to toggle [hidden] on. This rule makes
+           that wrapper a transparent flex pass-through — same
+           flex-direction/min-height as .info-panel itself — so .summary
+           (flex:none, pinned) and .halls (flex:1 1 auto, scrolls) still
+           get exactly the sizing they had before the wrapper existed.
+           Without this, .summary/.halls would be flex *items* of a
+           plain-block wrapper instead of flex children of .info-panel,
+           and .halls's own "scroll inside a capped height" rule would
+           have nothing to size against. */
+        .info-panel > .facility-view {
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+          flex: 1 1 auto;
         }
       }
 
@@ -708,6 +828,100 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         outline: 2px solid var(--accent);
         outline-offset: 1px;
       }
+
+      /* --- Stage 2 (AA Room): a facility's info-panel/hall-view-pane
+         content that isn't the currently selected tab. Hidden via the
+         plain `hidden` attribute, set in the template for AA Room's
+         panels and toggled by the facility-tab script below.
+
+         `!important` here is load-bearing, not belt-and-braces: a real
+         browser check caught both Laundry AND AA Room rendering at once
+         (Laundry's 3D canvas visibly squeezed, AA Room's placeholder and
+         panel sitting underneath it) — confirmed to be a cascade bug,
+         not a script bug. `.info-panel > .facility-view` and
+         `.hall-view-pane > .facility-view` below (the transparent
+         flex-pass-through rules) compile to TWO scoped classes plus the
+         astro-cid attribute on each side of the `>`, i.e. specificity
+         (0,4,0) under Astro's per-element `data-astro-cid-*` scoping —
+         higher than `.facility-view[hidden]`'s own (0,3,0) (one scoped
+         class + the astro-cid attribute + `[hidden]`). The pass-through
+         rules' `display: flex` therefore legitimately outranked
+         `[hidden]`'s `display: none` in the real cascade, independent of
+         source order — confirmed by reading the actual compiled,
+         minified CSS output, not assumed from the source alone.
+         `!important` is the correct, standard tool for "being hidden
+         must always win over this element's own internal layout rules",
+         not a workaround for a specificity fight that should instead be
+         won by writing a differently-shaped selector: every other way to
+         outrank (0,4,0) without `!important` would mean matching or
+         exceeding the pass-through rules' own selector shape, which is
+         exactly as brittle the next time one of them changes. --- */
+      .facility-view[hidden] {
+        display: none !important;
+      }
+
+      /* AA Room's placeholder left pane — deliberately plain, not a 3D
+         scene (that's later work; see
+         notes/adr/0003-aa-room-live-state.md). Matches .hall-view-canvas's
+         general proportions so the workbench layout doesn't jump when
+         switching tabs, without pretending to be the real thing. */
+      .aa-room-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: var(--ink-muted);
+        font-style: italic;
+        background: var(--surface-alt);
+      }
+
+      /* --- AA Room's status line: same badge-family language as
+         Laundry's STATUS_META badges (icon + label + the same
+         --status-good/in-use/unknown palette), but larger and
+         unbordered — it's the one and only status this panel shows, not
+         one badge among many machine cards, so it reads as a headline,
+         not a tag. --- */
+      .aa-room-summary {
+        display: block;
+        margin: 0 0 1rem;
+        max-width: none;
+      }
+      .aa-room-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+        font-size: 1.3rem;
+        font-weight: 700;
+      }
+      .aa-room-status.status-available { color: var(--status-good); }
+      .aa-room-status.status-in-use { color: var(--status-in-use); }
+      .aa-room-status.status-unknown { color: var(--ink-muted); }
+      .aa-room-status-icon { flex: none; }
+      .aa-room-activity {
+        margin: 0.4rem 0 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--ink-secondary);
+      }
+      .aa-room-confirmed {
+        display: block;
+        margin-top: 0.4rem;
+      }
+      /* Freshness is its own line, separate from the confirmed-N-min-ago
+         text — restrained (no background fill, no border, no icon
+         beyond colour) per the ADR's "明显但克制地提示" instruction: a
+         colour and a short sentence, not a banner. */
+      .aa-room-freshness {
+        margin: 0.35rem 0 0;
+        font-size: 0.8rem;
+        font-weight: 600;
+      }
+      .aa-room-freshness.aa-freshness--stale { color: var(--warm); }
+      .aa-room-freshness.aa-freshness--unknown { color: var(--ink-muted); font-style: italic; }
+
+      .aa-room-report {
+        margin-top: 0.5rem;
+      }
     </style>
 
     {/* Stage 2's hover/focus overlay cards are created by
@@ -909,9 +1123,16 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           invented data behind them. aria-current="page" on the one real
           tab, not a class alone, so assistive tech gets the same signal
           sighted users get from its filled-in style. */}
+      {/* Stage 2 (AA Room) — Laundry and AA Room are now both real,
+          clickable tabs; the other five stay exactly as they were
+          (plain disabled buttons, no route, no invented data). Each
+          clickable tab carries data-facility, read by the script below
+          to show/hide that facility's hall-view-pane and info-panel
+          content — nothing here duplicates machine or AA Room data, it
+          only ever toggles which already-rendered panel is visible. */}
       <nav class="facility-tabs" aria-label="Shared spaces">
-        <button type="button" class="facility-tab" aria-current="page">Laundry</button>
-        <button type="button" class="facility-tab" disabled>AA Room</button>
+        <button type="button" class="facility-tab" data-facility="laundry" aria-current="page">Laundry</button>
+        <button type="button" class="facility-tab" data-facility="aa-room">AA Room</button>
         <button type="button" class="facility-tab" disabled>Otter Room</button>
         <button type="button" class="facility-tab" disabled>Rabbit Room</button>
         <button type="button" class="facility-tab" disabled>Badger Room</button>
@@ -937,18 +1158,36 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
               this section being skipped entirely. Initialized once from
               this page load's real state via data-machines, then kept live
               by the dashboard script's existing applyMachineUpdate() below
-              (see scene.ts's applyMachineToScene note). */}
-          <section
-            class="hall-view"
-            aria-hidden="true"
-            data-machines={JSON.stringify(hallViewMachines)}
-          >
-            <div class="hall-view-canvas" id="hall-view-canvas"></div>
-            <p class="hall-view-caption">Toad Hall — live laundry miniature</p>
-          </section>
+              (see scene.ts's applyMachineToScene note).
+
+              Stage 2 (AA Room) — wrapped in data-facility="laundry" so the
+              facility-tab script can hide it when AA Room is selected;
+              nothing inside this wrapper changes. */}
+          <div class="facility-view" data-facility="laundry">
+            <section
+              class="hall-view"
+              aria-hidden="true"
+              data-machines={JSON.stringify(hallViewMachines)}
+            >
+              <div class="hall-view-canvas" id="hall-view-canvas"></div>
+              <p class="hall-view-caption">Toad Hall — live laundry miniature</p>
+            </section>
+          </div>
+
+          {/* AA Room's left pane for this stage: a plain placeholder, not a
+              3D scene — that's explicitly later work (see
+              notes/adr/0003-aa-room-live-state.md's own "what this ADR
+              does not decide"). Hidden by default; the facility-tab
+              script below shows it only when AA Room is selected. */}
+          <div class="facility-view" data-facility="aa-room" hidden>
+            <section class="hall-view aa-room-placeholder" aria-hidden="true">
+              <p>AA Room visual coming next.</p>
+            </section>
+          </div>
         </div>
 
         <div class="info-panel">
+      <div class="facility-view" data-facility="laundry">
       <section class="summary" aria-label="Laundry summary">
         {summary.map(({ key, count }) => (
           <div class:list={["stat", key]}>
@@ -1062,6 +1301,69 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           </article>
         ))}
       </section>
+      </div>
+
+      {/* AA Room's practical panel — Stage 2: reads from the canonical
+          /api/aa-room state passed down via data-aa-room (the same
+          "initial render from this page load's real state, then kept
+          live by its own script" shape the Laundry panel already uses
+          for `machines`). Hidden by default, shown only when the AA Room
+          facility tab is selected. No block-tabs: AA Room is one room,
+          not five locations. */}
+      <div class="facility-view aa-room-panel" data-facility="aa-room" hidden data-aa-room={JSON.stringify(aaRoom)}>
+        <section class="summary aa-room-summary" aria-label="AA Room status">
+          <div class:list={["aa-room-status", AA_ROOM_STATUS_META[aaRoom.occupancy].class]}>
+            <span class="aa-room-status-icon" aria-hidden="true">{AA_ROOM_STATUS_META[aaRoom.occupancy].icon}</span>
+            <span class="aa-room-status-label">{AA_ROOM_STATUS_META[aaRoom.occupancy].label}</span>
+          </div>
+          {/* Always rendered, hidden when there's no activity to show — same
+              "stable node, toggled, never built from scratch" shape as
+              Laundry's .remaining paragraph. Never a hardcoded fallback
+              label when activity is unset (ADR 0003: unset activity means
+              "nothing specific to report," not a value to invent a label
+              for). */}
+          <p class="aa-room-activity" hidden={!aaRoom.activity}>
+            {aaRoom.activity ? AA_ROOM_ACTIVITY_META[aaRoom.activity].label : ""}
+          </p>
+          <span class="confirmed aa-room-confirmed">{aaRoomConfirmedLabel(aaRoom.confirmedAt)}</span>
+          {(() => {
+            const fresh = aaRoomFreshnessLabel(aaRoom.freshness);
+            return (
+              <p class:list={["aa-room-freshness", fresh?.class]} hidden={!fresh}>
+                {fresh?.text ?? ""}
+              </p>
+            );
+          })()}
+        </section>
+
+        <details class="report aa-room-report">
+          <summary>Update status</summary>
+          {/* Only empty/occupied are ever offered — unknown is never a
+              reportable value (ADR 0003, Decision 2): it's what seeding or
+              decay produces, never something a resident observes and
+              reports. data-version is kept in sync with every canonical
+              state this panel receives, the same way Laundry's
+              .report-form does. */}
+          <form class="report-form aa-room-report-form" data-version={aaRoom.version}>
+            <select name="occupancy" aria-label="AA Room status">
+              <option value="empty">Empty</option>
+              <option value="occupied">Occupied</option>
+            </select>
+            {/* Hidden whenever occupancy isn't "occupied" — the report
+                script below clears its value AND hides it together, so an
+                empty report can never carry a stale activity selection
+                left over from a previous occupied one. */}
+            <select name="activity" aria-label="What's happening (optional)" class="aa-room-activity-select" hidden>
+              <option value="">Unspecified</option>
+              <option value="tv">TV</option>
+              <option value="pool">Pool</option>
+              <option value="table-tennis">Table tennis</option>
+              <option value="event">Event</option>
+            </select>
+            <button type="submit">Report</button>
+          </form>
+        </details>
+      </div>
         </div>
       </div>
     </main>
@@ -1075,6 +1377,33 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         changes: this block still only mounts the scene from the
         page's initial state; it's the *other* script that reaches
         into this module now, not this one reaching out. */}
+    {/* Stage 2 (AA Room) — facility-tab switching: a pure VIEW filter,
+        the same "toggle [hidden] on already-rendered content, read/write
+        no machine or AA Room data" shape as the block-tabs script below.
+        Its own, separate inline script block — not a literal tag written
+        out in this comment, since a naive scanner can mistake that for a
+        real script boundary — independent of the two that follow, since
+        it owns none of their state and neither of them needs to know
+        this one exists. */}
+    <script>
+      const facilityTabs = document.querySelectorAll<HTMLButtonElement>(".facility-tab[data-facility]");
+      const facilityViews = document.querySelectorAll<HTMLElement>(".facility-view[data-facility]");
+
+      function selectFacility(facility: string): void {
+        for (const view of facilityViews) {
+          view.hidden = view.dataset.facility !== facility;
+        }
+        for (const tab of facilityTabs) {
+          if (tab.dataset.facility === facility) tab.setAttribute("aria-current", "page");
+          else tab.removeAttribute("aria-current");
+        }
+      }
+
+      facilityTabs.forEach((tab) => {
+        tab.addEventListener("click", () => selectFacility(tab.dataset.facility!));
+      });
+    </script>
+
     <script>
       import { mount } from "../lib/hall-view/scene.ts";
       import type { Machine } from "../lib/types.ts";
@@ -1341,6 +1670,174 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           alert("couldn't save that report — try again");
         });
       });
+    </script>
+
+    {/* Stage 2 (AA Room) — its own, separate state and script, not folded
+        into the Laundry dashboard's applyMachineUpdate(): AA Room's
+        canonical shape (AaRoomState) is deliberately not the Machine
+        shape (see notes/adr/0003-aa-room-live-state.md), so this is its
+        own small "render canonical state into these DOM nodes" function,
+        the AA Room equivalent of applyMachineUpdate() above, not a reuse
+        of it. No SSE yet (Stage 3): the panel is painted once from the
+        page's initial data-aa-room, and again only when this browser's
+        own PATCH resolves — never a reload, but also never a push from
+        anyone else's report until Stage 3 wires that in. */}
+    <script>
+      type AaRoomOccupancy = "empty" | "occupied" | "unknown";
+      type AaRoomActivity = "tv" | "pool" | "table-tennis" | "event";
+      interface AaRoomState {
+        occupancy: AaRoomOccupancy;
+        activity: AaRoomActivity | null;
+        confirmedAt: number | null;
+        version: number;
+        freshness: "fresh" | "stale" | null;
+      }
+
+      const STATUS_META: Record<AaRoomOccupancy, { label: string; icon: string; class: string }> = {
+        empty: { label: "Empty", icon: "✓", class: "status-available" },
+        occupied: { label: "Occupied", icon: "●", class: "status-in-use" },
+        unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+      };
+      const ACTIVITY_META: Record<AaRoomActivity, { label: string }> = {
+        tv: { label: "TV" },
+        pool: { label: "Pool" },
+        "table-tennis": { label: "Table tennis" },
+        event: { label: "Event" },
+      };
+
+      // Mirrors confirmedLabel()/remainingLabel() elsewhere on this page —
+      // both need the client's current clock, so neither can be shared
+      // directly across the server/client boundary; kept tiny and
+      // behaviourally identical instead of invented differently here.
+      function confirmedLabel(confirmedAt: number | null): string {
+        if (confirmedAt === null) return "never reported";
+        const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+        if (minutes < 1) return "confirmed just now";
+        return `confirmed ${minutes} min ago`;
+      }
+
+      function freshnessLabel(freshness: AaRoomState["freshness"]): { text: string; cls: string } | null {
+        if (freshness === "fresh") return null;
+        if (freshness === "stale") return { text: "this may be out of date", cls: "aa-freshness--stale" };
+        return { text: "no recent enough report to show", cls: "aa-freshness--unknown" };
+      }
+
+      const panel = document.querySelector<HTMLElement>(".aa-room-panel");
+      const statusEl = panel?.querySelector<HTMLElement>(".aa-room-status");
+      const statusIconEl = panel?.querySelector<HTMLElement>(".aa-room-status-icon");
+      const statusLabelEl = panel?.querySelector<HTMLElement>(".aa-room-status-label");
+      const activityEl = panel?.querySelector<HTMLElement>(".aa-room-activity");
+      const confirmedEl = panel?.querySelector<HTMLElement>(".aa-room-confirmed");
+      const freshnessEl = panel?.querySelector<HTMLElement>(".aa-room-freshness");
+      const form = panel?.querySelector<HTMLFormElement>(".aa-room-report-form");
+      const occupancySelect = form?.elements.namedItem("occupancy") as HTMLSelectElement | null;
+      const activitySelect = form?.querySelector<HTMLSelectElement>(".aa-room-activity-select");
+
+      // Applies AA Room's canonical state to the panel — used for the
+      // initial server-rendered state (called once below), and again for
+      // whatever this browser's own PATCH response hands back (success or
+      // 409 conflict alike). Never reached by any other session's report
+      // yet — that's Stage 3's SSE wiring.
+      function applyAaRoomUpdate(room: AaRoomState): void {
+        if (!statusEl || !statusIconEl || !statusLabelEl || !activityEl || !confirmedEl || !freshnessEl || !form) {
+          return;
+        }
+
+        const meta = STATUS_META[room.occupancy];
+        statusEl.className = `aa-room-status ${meta.class}`;
+        statusIconEl.textContent = meta.icon;
+        statusLabelEl.textContent = meta.label;
+
+        if (room.activity) {
+          activityEl.hidden = false;
+          activityEl.textContent = ACTIVITY_META[room.activity].label;
+        } else {
+          activityEl.hidden = true;
+          activityEl.textContent = "";
+        }
+
+        confirmedEl.textContent = confirmedLabel(room.confirmedAt);
+
+        const fresh = freshnessLabel(room.freshness);
+        if (fresh) {
+          freshnessEl.hidden = false;
+          freshnessEl.className = `aa-room-freshness ${fresh.cls}`;
+          freshnessEl.textContent = fresh.text;
+        } else {
+          freshnessEl.hidden = true;
+          freshnessEl.textContent = "";
+        }
+
+        form.dataset.version = String(room.version);
+      }
+
+      // Keeps the activity <select> in sync with the occupancy <select> —
+      // shown and usable only when "Occupied" is chosen; hidden AND reset
+      // to "Unspecified" together whenever it isn't, so an "Empty" report
+      // can never silently carry a leftover activity value the resident
+      // never saw or chose for this submission (see the ADR, Decision 1:
+      // activity only ever means anything alongside "occupied").
+      function syncActivityVisibility(): void {
+        if (!occupancySelect || !activitySelect) return;
+        const showActivity = occupancySelect.value === "occupied";
+        activitySelect.hidden = !showActivity;
+        if (!showActivity) activitySelect.value = "";
+      }
+
+      if (panel) {
+        const initial = JSON.parse(panel.dataset.aaRoom!) as AaRoomState;
+        applyAaRoomUpdate(initial);
+
+        occupancySelect?.addEventListener("change", syncActivityVisibility);
+        syncActivityVisibility();
+
+        form?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const occupancy = occupancySelect!.value;
+          const activityRaw = activitySelect!.hidden ? "" : activitySelect!.value;
+          const ifVersion = Number(form!.dataset.version);
+
+          // No reporterId here, same as Laundry's own report script — the
+          // actor is resolved server-side from this browser's session
+          // cookie (notes/adr/0002-identity-and-permissions.md).
+          const res = await fetch("/api/aa-room", {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              occupancy,
+              activity: activityRaw === "" ? null : activityRaw,
+              ifVersion,
+            }),
+          });
+
+          if (res.ok) {
+            const room = (await res.json()) as AaRoomState;
+            applyAaRoomUpdate(room);
+            syncActivityVisibility();
+            const details = form!.closest("details.report");
+            if (details) (details as HTMLDetailsElement).open = false;
+            return;
+          }
+
+          if (res.status === 409) {
+            // Same conflict UX as Laundry's own report script: say so
+            // plainly, show the state the server actually holds, let the
+            // resident decide whether to report again — never a silent
+            // overwrite, never a silent reload.
+            const { current } = await res.json();
+            applyAaRoomUpdate(current as AaRoomState);
+            syncActivityVisibility();
+            const label = STATUS_META[(current as AaRoomState).occupancy]?.label ?? (current as AaRoomState).occupancy;
+            alert(
+              `AA Room changed since you last saw it — it's now reported as "${label}". ` +
+                "The panel shows that now; check it and report again if it's still wrong.",
+            );
+            return;
+          }
+
+          alert("couldn't save that report — try again");
+        });
+      }
     </script>
   </body>
 </html>
