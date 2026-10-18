@@ -39,3 +39,51 @@ export interface Machine {
   // it never sets one. See CLAUDE.md and the ADR above.
   version: number;
 }
+
+// AA Room — Toad Live's second facility. See
+// notes/adr/0003-aa-room-live-state.md: occupancy is the required primary
+// field, activity a single optional enrichment, deliberately not the
+// Machine shape above (no per-location rows, no expected-end-time concept
+// — nobody can read an objective "end time" off a common-room hangout the
+// way a washer's display gives one off a wash cycle).
+export type AaRoomOccupancy = "empty" | "occupied" | "unknown";
+export const VALID_AA_ROOM_OCCUPANCIES: readonly AaRoomOccupancy[] = [
+  "empty",
+  "occupied",
+  "unknown",
+];
+
+// "unknown" is never a value a resident's PATCH may send — see the ADR's
+// Decision 2, "unknown is not a reportable value": it represents "there
+// is currently no fresh-enough observation," which only seeding or decay
+// (never a report) can produce. A client sending "unknown" is rejected
+// 400, not silently accepted or coerced.
+export type ReportableAaRoomOccupancy = Extract<AaRoomOccupancy, "empty" | "occupied">;
+export const VALID_REPORTABLE_AA_ROOM_OCCUPANCIES: readonly ReportableAaRoomOccupancy[] = [
+  "empty",
+  "occupied",
+];
+
+export type AaRoomActivity = "tv" | "pool" | "table-tennis" | "event";
+export const VALID_AA_ROOM_ACTIVITIES: readonly AaRoomActivity[] = [
+  "tv",
+  "pool",
+  "table-tennis",
+  "event",
+];
+
+export interface AaRoomState {
+  occupancy: AaRoomOccupancy;
+  activity: AaRoomActivity | null;
+  confirmedAt: number | null;
+  // Server-owned, starts at 1 — the exact same contract as Machine.version
+  // above (CLAUDE.md, ADR 0001): every persisted mutation increments it
+  // atomically; a client only ever echoes a version it saw.
+  version: number;
+  // Derived at read time from (occupancy, confirmedAt, now) — see
+  // src/lib/freshness.ts. Never stored, never accepted from a client.
+  // null means there is currently no fresh-enough observation to grade
+  // (occupancy is "unknown", whether from the initial seed or from decay
+  // having already fired).
+  freshness: "fresh" | "stale" | null;
+}

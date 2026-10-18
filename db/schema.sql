@@ -53,3 +53,28 @@ CREATE TABLE IF NOT EXISTS sessions (
   pseudonym   TEXT NOT NULL UNIQUE,
   created_at  INTEGER NOT NULL
 );
+
+-- AA Room: Toad Live's second facility. See
+-- notes/adr/0003-aa-room-live-state.md. A single row (the room has no
+-- sub-locations the way `machines` has five) — id is a fixed constant,
+-- not something more than one row could ever carry. No started_at/
+-- expected_end_at columns: unlike a washer/dryer, nothing about a common
+-- room gives any report an objective end time, so those columns would
+-- exist with no way to ever populate them honestly (see the ADR,
+-- Decision 3). "activity only set when occupancy = 'occupied'" is
+-- enforced in src/lib/aa-room.ts, not here — SQLite's CHECK syntax
+-- doesn't lend itself to an easy cross-column conditional, and the
+-- existing `machines` table doesn't reach for that device for its own
+-- analogous started_at/expected_end_at-only-when-in-use rule either.
+-- reporter_id references sessions.id, same meaning as
+-- machines.reporter_id (ADR 0002) — never a client-asserted value.
+CREATE TABLE IF NOT EXISTS aa_room (
+  id            TEXT PRIMARY KEY DEFAULT 'aa-room',
+  occupancy     TEXT NOT NULL DEFAULT 'unknown'
+                  CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
+  activity      TEXT
+                  CHECK (activity IN ('tv', 'pool', 'table-tennis', 'event')),
+  confirmed_at  INTEGER,
+  reporter_id   TEXT,
+  version       INTEGER NOT NULL DEFAULT 1
+);

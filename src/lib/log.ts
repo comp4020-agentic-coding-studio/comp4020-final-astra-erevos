@@ -74,6 +74,36 @@ export function formatReportRejected(params: { actor: string; machine: string; r
   ]);
 }
 
+// AA Room's own report-outcome lines — same shape as the machine ones
+// above, but naming the facility ("aa-room") instead of a machine id,
+// since AA Room is one row, not a keyed resource. See
+// notes/adr/0003-aa-room-live-state.md.
+export function formatAaRoomReportOutcome(params: {
+  actor: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "aa-room"],
+    ["action", "report"],
+    ["occupancy", params.occupancy],
+    ["result", params.result],
+    ["version", params.version],
+  ]);
+}
+
+export function formatAaRoomReportRejected(params: { actor: string; reason: string }): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "aa-room"],
+    ["action", "report"],
+    ["result", "rejected"],
+    ["reason", params.reason],
+  ]);
+}
+
 export function logSessionCreated(pseudonym: string): void {
   console.log(formatSessionCreated(pseudonym));
 }
@@ -90,4 +120,17 @@ export function logReportOutcome(params: {
 
 export function logReportRejected(params: { actor: string; machine: string; reason: string }): void {
   console.log(formatReportRejected(params));
+}
+
+export function logAaRoomReportOutcome(params: {
+  actor: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): void {
+  console.log(formatAaRoomReportOutcome(params));
+}
+
+export function logAaRoomReportRejected(params: { actor: string; reason: string }): void {
+  console.log(formatAaRoomReportRejected(params));
 }

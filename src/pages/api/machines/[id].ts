@@ -2,6 +2,7 @@ import type { APIRoute } from "astro";
 import { getMachine, reportStatus, VALID_STATUSES, type MachineStatus } from "../../../lib/db.ts";
 import { COOKIE_NAME, resolveSession } from "../../../lib/sessions.ts";
 import { logReportOutcome, logReportRejected } from "../../../lib/log.ts";
+import { isSafePositiveInteger } from "../../../lib/validation.ts";
 
 const json = (data: unknown, status: number): Response =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -25,18 +26,6 @@ interface ReportBody {
 
 function isValidStatus(status: string | undefined): status is MachineStatus {
   return VALID_STATUSES.includes(status as MachineStatus);
-}
-
-// node:sqlite throws rather than silently truncate when a stored INTEGER
-// exceeds Number.MAX_SAFE_INTEGER, so an unvalidated client number can
-// corrupt a row into one that errors on every future read — not a
-// hypothetical: this is exactly how ab-washer broke during the crit 8
-// redeploy check. Reject anything that isn't a real, safe, positive
-// integer before it ever reaches SQLite — used for startedAt/expectedEndAt
-// (timestamps) and, since Crit 9, ifVersion: a different field, the same
-// guard, not a new category of rule.
-function isSafePositiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 // A resident's report: sets the new status and, for in-use, an optional
