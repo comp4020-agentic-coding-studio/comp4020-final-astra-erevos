@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { db } from "./db.ts";
+import { broadcast } from "./realtime.ts";
 import { computeFreshness } from "./freshness.ts";
 import type { AaRoomActivity, AaRoomOccupancy, AaRoomState, ReportableAaRoomOccupancy } from "./types.ts";
 
@@ -62,16 +63,17 @@ export function seedAaRoomIfEmpty(store: AaRoomStore = defaultStore()): void {
 // real 45-minute window and without touching the threshold constants
 // themselves.
 //
-// Mirrors machines.ts's decayed() in every way EXCEPT broadcasting: a
-// decay transition here is still a real, canonical mutation (it
-// increments `version` exactly like a resident's report does), but
-// Stage 1 deliberately has no SSE wiring yet (see
-// notes/adr/0003-aa-room-live-state.md's Mechanics section on
-// realtime.ts's Subscriber/broadcast() being concretely Machine-typed
-// today, not already payload-shape-agnostic) — broadcasting AA Room
-// state is Stage-3 work, once realtime.ts is widened. Nothing here
-// forecloses that; this function already returns the full new state,
-// which a later broadcast() call site can pass straight through.
+// Mirrors machines.ts's decayed(), broadcast included as of Stage 3: a
+// decay transition is a real, canonical mutation — it increments
+// `version` exactly like a resident's report does, and every other open
+// session needs to see it too, not just whoever happened to trigger the
+// read. See notes/adr/0003-aa-room-live-state.md and
+// notes/adr/0001-realtime-and-concurrent-updates.md. Broadcasting against
+// `store.db` directly (not the module's default `db`) means a test's own
+// throwaway store never reaches the real app's subscriber list — there's
+// nothing listening in that process either way, but this keeps a test
+// store's mutations from ever being observable outside the store it
+// actually wrote to, in principle as well as in practice.
 function decayedAaRoom(
   row: AaRoomRow,
   now: number,
@@ -91,12 +93,15 @@ function decayedAaRoom(
   // changes === 0 means something else already moved this row since it
   // was read (unreachable in a single synchronous process today, same
   // reasoning as machines.ts's decayed()) — re-read rather than assume a
-  // stale view, and don't broadcast: nothing actually changed here.
+  // stale view, and don't broadcast: nothing actually changed as a result
+  // of this call.
   if (changes === 0) {
     return store.db.prepare("SELECT * FROM aa_room WHERE id = ?").get(row.id) as unknown as AaRoomRow;
   }
 
-  return { ...row, occupancy: "unknown", activity: null, version: row.version + 1 };
+  const updated: AaRoomRow = { ...row, occupancy: "unknown", activity: null, version: row.version + 1 };
+  broadcast({ kind: "aa-room", room: toAaRoomState(updated, now) });
+  return updated;
 }
 
 function toAaRoomState(row: AaRoomRow, now: number): AaRoomState {
@@ -147,8 +152,12 @@ export type AaRoomUpdateResult =
 // UPDATE's WHERE guard makes the write atomic against both another
 // resident's report and the server's own lazy decay landing in between.
 //
-// No broadcast() call — same Stage 1 boundary as decayedAaRoom() above;
-// SSE wiring is deferred to a later stage.
+// Broadcasts exactly what this write just set, straight off the row —
+// not through getAaRoom(), which would fold in any immediate decay
+// before this report's own state ever got announced (mirrors
+// machines.ts's reportStatus() on the same point). Only on changes === 1:
+// a stale write (changes === 0, the `ok: false` branch below) made no
+// real mutation, so there is nothing to tell anyone about.
 export function reportAaRoomStatus(
   report: AaRoomReport,
   ifVersion: number,
@@ -167,7 +176,9 @@ export function reportAaRoomStatus(
 
   if (changes === 1) {
     const written = store.db.prepare("SELECT * FROM aa_room WHERE id = ?").get(AA_ROOM_ID) as unknown as AaRoomRow;
-    return { ok: true, room: toAaRoomState(written, now) };
+    const state = toAaRoomState(written, now);
+    broadcast({ kind: "aa-room", room: state });
+    return { ok: true, room: state };
   }
 
   return { ok: false, reason: "stale", current: getAaRoom(now, store) };

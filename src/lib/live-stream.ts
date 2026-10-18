@@ -1,0 +1,58 @@
+import type { AaRoomState, Machine } from "./types.ts";
+
+// Stage 3 (AA Room) — the ONE SSE connection for the whole page, shared
+// between index.astro's Laundry dashboard script and its AA Room panel
+// script. Those are two separate inline <script type="module"> blocks,
+// each with its own module scope, so a page-scoped `const events = new
+// EventSource(...)` declared inside one is invisible to the other — this
+// module exists so both can observe the exact same connection instead of
+// either opening a second EventSource or one script awkwardly reaching
+// into the other's closure. Exactly the same sharing mechanism
+// src/lib/hall-view/scene.ts already uses for its mountedScenes registry:
+// ES modules are singletons keyed by URL, so every script that imports
+// this file gets the one instance created the first time any of them
+// does. See notes/adr/0003-aa-room-live-state.md.
+//
+// No event replay/history here, same as before: a (re)connection just
+// lets each registered "open" listener re-fetch its own current state —
+// see src/pages/api/stream.ts's own note on why.
+type MachineListener = (machine: Machine) => void;
+type AaRoomListener = (room: AaRoomState) => void;
+type OpenListener = () => void;
+
+const machineListeners = new Set<MachineListener>();
+const aaRoomListeners = new Set<AaRoomListener>();
+const openListeners = new Set<OpenListener>();
+
+const events = new EventSource("/api/stream");
+
+events.addEventListener("machine", (event) => {
+  const machine = JSON.parse((event as MessageEvent<string>).data) as Machine;
+  for (const listener of machineListeners) listener(machine);
+});
+
+events.addEventListener("aa-room", (event) => {
+  const room = JSON.parse((event as MessageEvent<string>).data) as AaRoomState;
+  for (const listener of aaRoomListeners) listener(room);
+});
+
+events.addEventListener("open", () => {
+  for (const listener of openListeners) listener();
+});
+
+export function onMachineEvent(fn: MachineListener): void {
+  machineListeners.add(fn);
+}
+
+export function onAaRoomEvent(fn: AaRoomListener): void {
+  aaRoomListeners.add(fn);
+}
+
+// Fires once per connect/reconnect — each registered listener is
+// responsible for re-fetching whatever current state it cares about, the
+// same "re-fetch is itself a qualifying read" principle
+// src/pages/api/stream.ts already documents for machines, now shared by
+// AA Room too.
+export function onOpen(fn: OpenListener): void {
+  openListeners.add(fn);
+}

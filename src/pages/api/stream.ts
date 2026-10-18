@@ -1,11 +1,19 @@
 import type { APIRoute } from "astro";
 import { subscribe } from "../../lib/realtime.ts";
-import type { Machine } from "../../lib/types.ts";
 
 // Crit 9's real-time transport: a one-directional SSE push of the
-// canonical machine state after each mutation commits — a resident's
-// report or a server-driven decay alike. Writes stay plain HTTP PATCH; see
+// canonical state after each mutation commits — a resident's report or a
+// server-driven decay alike. Writes stay plain HTTP PATCH; see
 // notes/adr/0001-realtime-and-concurrent-updates.md.
+//
+// Stage 3 (AA Room): still exactly one SSE connection, one subscriber
+// list — see notes/adr/0003-aa-room-live-state.md. The single
+// subscribe() callback below switches on the broadcast payload's `kind`
+// and writes the matching named SSE event (`event: machine` or
+// `event: aa-room`), so the two facilities' events are told apart on the
+// wire without a discriminator field inside `machine`'s own JSON body —
+// the existing `event: machine` listener in src/pages/index.astro, and
+// every test keyed on it, sees exactly the same shape it always has.
 //
 // No initial snapshot and no event replay/history here: a client that
 // (re)connects re-fetches current persisted state itself (see
@@ -24,13 +32,17 @@ export const GET: APIRoute = ({ request }) => {
       // quiet connection got zero bytes for several seconds). A bare SSE
       // comment line is spec-legal, carries no `data:`/event name, and
       // EventSource silently ignores it — it never reaches the "machine"
-      // listener in src/pages/index.astro, only triggers the native "open"
-      // event once headers arrive, which is exactly the point.
+      // or "aa-room" listeners in src/pages/index.astro, only triggers the
+      // native "open" event once headers arrive, which is exactly the
+      // point. This must keep working — see
+      // notes/adr/0003-aa-room-live-state.md and 885da13.
       controller.enqueue(encoder.encode(": connected\n\n"));
 
-      unsubscribe = subscribe((machine: Machine) => {
+      unsubscribe = subscribe((payload) => {
         try {
-          controller.enqueue(encoder.encode(`event: machine\ndata: ${JSON.stringify(machine)}\n\n`));
+          const eventName = payload.kind === "machine" ? "machine" : "aa-room";
+          const data = payload.kind === "machine" ? payload.machine : payload.room;
+          controller.enqueue(encoder.encode(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`));
         } catch {
           // The controller is already closed (client gone) — the
           // `cancel`/`abort` handling below will unsubscribe shortly;

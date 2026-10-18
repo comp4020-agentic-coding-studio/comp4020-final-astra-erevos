@@ -1491,6 +1491,14 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // URL; both scripts import the same file).
       import { applyMachineToScene } from "../lib/hall-view/scene.ts";
       import type { Machine } from "../lib/types.ts";
+      // Stage 3 (AA Room): the page's one SSE connection now lives in its
+      // own shared module (src/lib/live-stream.ts) rather than as a local
+      // `const events` here, specifically so the separate AA Room script
+      // block further down can observe `aa-room` events on the exact same
+      // connection instead of opening a second EventSource. See that
+      // module's own note on why — same "ES modules are singletons keyed
+      // by URL" sharing scene.ts already relies on.
+      import { onMachineEvent, onOpen } from "../lib/live-stream.ts";
 
       // Server-rendered badge text/icon/class (STATUS_META in the
       // frontmatter above), read once rather than re-derived here, so a
@@ -1598,17 +1606,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         updateSummary();
       }
 
-      // One SSE connection for the whole page. No event replay/history: a
-      // (re)connection just re-fetches current state for every card below,
-      // the same read path any page load already uses — see
-      // notes/adr/0001-realtime-and-concurrent-updates.md.
-      const events = new EventSource("/api/stream");
-
-      events.addEventListener("machine", (event) => {
-        applyMachineUpdate(JSON.parse((event as MessageEvent<string>).data));
+      // The page's one SSE connection (src/lib/live-stream.ts). No event
+      // replay/history: a (re)connection just re-fetches current state
+      // for every card below, the same read path any page load already
+      // uses — see notes/adr/0001-realtime-and-concurrent-updates.md.
+      onMachineEvent((machine) => {
+        applyMachineUpdate(machine);
       });
 
-      events.addEventListener("open", () => {
+      onOpen(() => {
         const ids = Array.from(document.querySelectorAll<HTMLElement>(".machine")).map(
           (el) => el.dataset.machine!,
         );
@@ -1678,11 +1684,12 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         shape (see notes/adr/0003-aa-room-live-state.md), so this is its
         own small "render canonical state into these DOM nodes" function,
         the AA Room equivalent of applyMachineUpdate() above, not a reuse
-        of it. No SSE yet (Stage 3): the panel is painted once from the
-        page's initial data-aa-room, and again only when this browser's
-        own PATCH resolves — never a reload, but also never a push from
-        anyone else's report until Stage 3 wires that in. */}
+        of it. Stage 3 wires this into the page's one shared SSE
+        connection (src/lib/live-stream.ts) below — same connection
+        Laundry's own script observes, no second EventSource. */}
     <script>
+      import { onAaRoomEvent, onOpen } from "../lib/live-stream.ts";
+
       type AaRoomOccupancy = "empty" | "occupied" | "unknown";
       type AaRoomActivity = "tv" | "pool" | "table-tennis" | "event";
       interface AaRoomState {
@@ -1790,6 +1797,32 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
 
         occupancySelect?.addEventListener("change", syncActivityVisibility);
         syncActivityVisibility();
+
+        // Stage 3 — a push from ANY session's report or decay transition,
+        // over the page's one shared SSE connection. applyAaRoomUpdate()
+        // only ever writes the display elements (status/activity-label/
+        // confirmed/freshness/version) and never touches
+        // occupancySelect.value or activitySelect.value, so a resident
+        // mid-way through choosing their own report is never overwritten
+        // by someone else's — the same property Laundry's own
+        // applyMachineUpdate() already has for its report form, not a new
+        // rule invented here. Deliberately NOT calling
+        // syncActivityVisibility() here: that function reacts to this
+        // browser's own occupancySelect value, which an incoming push
+        // never changes, so there's nothing for it to resync.
+        onAaRoomEvent((room) => {
+          applyAaRoomUpdate(room);
+        });
+
+        // Stage 3 — (re)connect re-fetches current AA Room state, the
+        // same "a (re)connection's own read is itself a qualifying read"
+        // principle the Laundry dashboard's onOpen() above already
+        // relies on.
+        onOpen(() => {
+          fetch("/api/aa-room")
+            .then((res) => res.json() as Promise<AaRoomState>)
+            .then(applyAaRoomUpdate);
+        });
 
         form?.addEventListener("submit", async (event) => {
           event.preventDefault();

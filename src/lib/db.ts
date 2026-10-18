@@ -149,7 +149,7 @@ function decayed(row: MachineRow): MachineRow {
     expected_end_at: null,
     version: row.version + 1,
   };
-  broadcast(toMachine(updated));
+  broadcast({ kind: "machine", machine: toMachine(updated) });
   return updated;
 }
 
@@ -229,7 +229,7 @@ export function reportStatus(id: string, report: StatusReport, ifVersion: number
     // not through getMachine()/decayed(), which would fold in any
     // immediate decay before this report's own state ever got announced.
     const written = db.prepare("SELECT * FROM machines WHERE id = ?").get(id) as unknown as MachineRow;
-    broadcast(toMachine(written));
+    broadcast({ kind: "machine", machine: toMachine(written) });
 
     // Re-read through getMachine() for the HTTP response, which also
     // applies decay if the write itself (e.g. an already-past

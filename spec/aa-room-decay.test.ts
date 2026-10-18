@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { getAaRoom, reportAaRoomStatus, seedAaRoomIfEmpty, type AaRoomStore } from "../src/lib/aa-room.ts";
 import { AA_ROOM_EXPIRE_MS, AA_ROOM_FRESH_MS } from "../src/lib/freshness.ts";
+import { subscribe, type BroadcastPayload } from "../src/lib/realtime.ts";
 
 // AA Room's 45-minute decay transition can't be exercised the way
 // spec/decay.test.ts exercises a machine's: a machine's own decay
@@ -146,6 +147,81 @@ it("empty decays to unknown exactly like occupied does — no stickiness for AA 
   expect(decayed.occupancy).toBe("unknown");
 });
 
+// Stage 3: decay must broadcast exactly like a resident's report does —
+// see notes/adr/0003-aa-room-live-state.md and src/lib/aa-room.ts's own
+// decayedAaRoom(). Subscribes directly to src/lib/realtime.ts (imported
+// within this same test file, so this is the same module instance
+// src/lib/aa-room.ts's broadcast() calls go through here — Vitest gives
+// each test FILE its own module registry, not each `it()`, so this
+// subscription only ever sees broadcasts this file's own calls produce).
+it("a decay transition broadcasts the new 'unknown' state over realtime.ts, exactly once", () => {
+  const store = freshTestStore();
+  seedAaRoomIfEmpty(store);
+
+  const received: BroadcastPayload[] = [];
+  const unsubscribe = subscribe((payload) => received.push(payload));
+
+  const reportedAt = 1_700_000_000_000;
+  const report = reportAaRoomStatus(
+    { occupancy: "occupied", activity: "event", reporterId: "test-actor" },
+    1,
+    reportedAt,
+    store,
+  );
+  expect(report.ok).toBe(true);
+  // The report itself also broadcasts (same as a real resident report) —
+  // expected, and not what this test is isolating; cleared below so the
+  // decay assertion only looks at what decay itself produced.
+  expect(received).toHaveLength(1);
+  expect(received[0]).toEqual({ kind: "aa-room", room: report.ok ? report.room : undefined });
+  received.length = 0;
+
+  const pastExpiry = reportedAt + AA_ROOM_EXPIRE_MS + 60_000;
+  const decayed = getAaRoom(pastExpiry, store);
+  expect(decayed.occupancy).toBe("unknown");
+
+  expect(received).toHaveLength(1);
+  expect(received[0]).toEqual({ kind: "aa-room", room: decayed });
+
+  // A second read, still past expiry, must NOT broadcast again — nothing
+  // actually changed this time (see decayedAaRoom()'s own "no mutation,
+  // no broadcast" branch).
+  getAaRoom(pastExpiry + 1000, store);
+  expect(received).toHaveLength(1);
+
+  unsubscribe();
+});
+
+// The ADR's own "do not fake updates" boundary: a read that finds nothing
+// to decay (occupancy already fresh) must not broadcast. decayedAaRoom()
+// returns early before ever reaching its UPDATE/broadcast when
+// computeFreshness() isn't null — this proves that early return actually
+// produces zero broadcasts over a real subscription, not just that the
+// returned state looks unchanged.
+it("an ordinary read that finds nothing stale broadcasts nothing", () => {
+  const store = freshTestStore();
+  seedAaRoomIfEmpty(store);
+
+  const reportedAt = 1_700_000_000_000;
+  const report = reportAaRoomStatus(
+    { occupancy: "occupied", activity: "tv", reporterId: "test-actor" },
+    1,
+    reportedAt,
+    store,
+  );
+  expect(report.ok).toBe(true);
+
+  const received: BroadcastPayload[] = [];
+  const unsubscribe = subscribe((payload) => received.push(payload));
+
+  const shortlyAfter = reportedAt + 60_000; // well within the fresh window
+  const room = getAaRoom(shortlyAfter, store);
+  expect(room.occupancy).toBe("occupied"); // nothing decayed
+
+  expect(received).toEqual([]);
+  unsubscribe();
+});
+
 it("reporting against a stale ifVersion is rejected 409-equivalent (ok: false) without mutating the row", () => {
   const store = freshTestStore();
   seedAaRoomIfEmpty(store);
@@ -160,4 +236,22 @@ it("reporting against a stale ifVersion is rejected 409-equivalent (ok: false) w
     expect(stale.current.occupancy).toBe("occupied");
     expect(stale.current.activity).toBe("tv");
   }
+});
+
+it("a stale-ifVersion report that gets rejected broadcasts nothing", () => {
+  const store = freshTestStore();
+  seedAaRoomIfEmpty(store);
+
+  const now = 1_700_000_000_000;
+  const first = reportAaRoomStatus({ occupancy: "occupied", activity: "tv", reporterId: "a" }, 1, now, store);
+  expect(first.ok).toBe(true);
+
+  const received: BroadcastPayload[] = [];
+  const unsubscribe = subscribe((payload) => received.push(payload));
+
+  const stale = reportAaRoomStatus({ occupancy: "empty", activity: null, reporterId: "b" }, 1, now, store);
+  expect(stale.ok).toBe(false);
+
+  expect(received).toEqual([]);
+  unsubscribe();
 });

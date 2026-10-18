@@ -1,4 +1,4 @@
-import type { Machine } from "./types.ts";
+import type { AaRoomState, Machine } from "./types.ts";
 
 // Crit 9's real-time transport: a single in-process subscriber list,
 // correct because this app runs as one Node process on one Fly machine
@@ -8,12 +8,25 @@ import type { Machine } from "./types.ts";
 // cycle with the database layer that calls into it.
 //
 // In-memory only, deliberately: a subscriber holds no fact about any
-// machine, isn't written to SQLite, and is fully rebuilt by the next
-// reconnect. See CLAUDE.md (Persistence) and
+// machine or AA Room's state, isn't written to SQLite, and is fully
+// rebuilt by the next reconnect. See CLAUDE.md (Persistence) and
 // notes/adr/0001-realtime-and-concurrent-updates.md. No event
 // replay/history is kept here — a (re)connecting client re-fetches
 // current persisted state instead (see src/pages/api/stream.ts).
-type Subscriber = (machine: Machine) => void;
+//
+// Stage 3 (AA Room) widens this from a Machine-only callback to a
+// discriminated union — see notes/adr/0003-aa-room-live-state.md's
+// Mechanics section, which flagged this exact widening as real,
+// necessary work rather than something already generic. A discriminated
+// union, not a loose `Machine | AaRoomState`, so a subscriber (and
+// src/pages/api/stream.ts, the only one today) can switch on `kind` and
+// get full type narrowing, and so adding a third facility later is one
+// more variant here, not a new parallel subscriber list.
+export type BroadcastPayload =
+  | { kind: "machine"; machine: Machine }
+  | { kind: "aa-room"; room: AaRoomState };
+
+type Subscriber = (payload: BroadcastPayload) => void;
 
 const subscribers = new Set<Subscriber>();
 
@@ -23,10 +36,12 @@ export function subscribe(fn: Subscriber): () => void {
 }
 
 // Call only after a mutation has actually committed to SQLite — never
-// speculatively. src/lib/db.ts calls this from both the resident-report
-// path (reportStatus) and the lazy-decay path (decayed), each exactly once
-// per real write, so every open session sees the same canonical state
-// change regardless of what caused it.
-export function broadcast(machine: Machine): void {
-  for (const subscriber of subscribers) subscriber(machine);
+// speculatively. src/lib/db.ts calls this with `{ kind: "machine", ... }`
+// from both the resident-report path (reportStatus) and the lazy-decay
+// path (decayed); src/lib/aa-room.ts calls it with `{ kind: "aa-room",
+// ... }` from the equivalent two places (reportAaRoomStatus, decayedAaRoom)
+// — each exactly once per real write, so every open session sees the same
+// canonical state change regardless of which facility or what caused it.
+export function broadcast(payload: BroadcastPayload): void {
+  for (const subscriber of subscribers) subscriber(payload);
 }
