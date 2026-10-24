@@ -1,4 +1,4 @@
-import type { AaRoomState, Machine } from "./types.ts";
+import type { AaRoomState, Machine, OtterRoomState } from "./types.ts";
 
 // Stage 3 (AA Room) — the ONE SSE connection for the whole page, shared
 // between index.astro's Laundry dashboard script and its AA Room panel
@@ -16,12 +16,18 @@ import type { AaRoomState, Machine } from "./types.ts";
 // No event replay/history here, same as before: a (re)connection just
 // lets each registered "open" listener re-fetch its own current state —
 // see src/pages/api/stream.ts's own note on why.
+//
+// ADR 0004 (Otter Room) adds a third listener set/event the same way
+// Stage 3 added the second — one more named SSE event over the same
+// connection, no new EventSource.
 type MachineListener = (machine: Machine) => void;
 type AaRoomListener = (room: AaRoomState) => void;
+type OtterRoomListener = (room: OtterRoomState) => void;
 type OpenListener = () => void;
 
 const machineListeners = new Set<MachineListener>();
 const aaRoomListeners = new Set<AaRoomListener>();
+const otterRoomListeners = new Set<OtterRoomListener>();
 const openListeners = new Set<OpenListener>();
 
 const events = new EventSource("/api/stream");
@@ -36,6 +42,11 @@ events.addEventListener("aa-room", (event) => {
   for (const listener of aaRoomListeners) listener(room);
 });
 
+events.addEventListener("otter-room", (event) => {
+  const room = JSON.parse((event as MessageEvent<string>).data) as OtterRoomState;
+  for (const listener of otterRoomListeners) listener(room);
+});
+
 events.addEventListener("open", () => {
   for (const listener of openListeners) listener();
 });
@@ -46,6 +57,10 @@ export function onMachineEvent(fn: MachineListener): void {
 
 export function onAaRoomEvent(fn: AaRoomListener): void {
   aaRoomListeners.add(fn);
+}
+
+export function onOtterRoomEvent(fn: OtterRoomListener): void {
+  otterRoomListeners.add(fn);
 }
 
 // Fires once per connect/reconnect — each registered listener is

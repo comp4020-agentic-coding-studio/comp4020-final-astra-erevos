@@ -1,7 +1,8 @@
 ---
 import { LOCATIONS, listMachines, type Machine, type MachineStatus, type MachineType } from "../lib/db.ts";
 import { getAaRoom } from "../lib/aa-room.ts";
-import type { AaRoomActivity, AaRoomOccupancy } from "../lib/types.ts";
+import { getOtterRoom, OTTER_ROOM_MAX_OCCUPIED_MS } from "../lib/otter-room.ts";
+import type { AaRoomActivity, AaRoomOccupancy, OtterRoomOccupancy } from "../lib/types.ts";
 import {
   COOKIE_NAME,
   COOKIE_MAX_AGE_SECONDS,
@@ -47,6 +48,11 @@ const byLocation = new Map(
 // state model to keep in sync with it. See
 // notes/adr/0003-aa-room-live-state.md.
 const aaRoom = getAaRoom();
+
+// Otter Room — Toad Live's third facility. Same "plain page-load read of
+// the one canonical row, kept live by its own script" shape as AA Room
+// above. See notes/adr/0004-otter-room-live-state.md.
+const otterRoom = getOtterRoom();
 
 // Stage 1 of the Live Hall View (see PROCESS.md): initialized from this
 // page load's real machine state. Deliberately no SSE wiring yet at
@@ -119,6 +125,41 @@ function aaRoomFreshnessLabel(freshness: "fresh" | "stale" | null): { text: stri
     return { text: "this may be out of date", class: "aa-freshness--stale" };
   }
   return { text: "no recent enough report to show", class: "aa-freshness--unknown" };
+}
+
+// Otter Room's own status palette — occupied reads as the same categorical
+// "something to see here" blue Laundry's in-use and AA Room's occupied
+// both use, empty is good/available-coded, unknown is the same
+// no-saturated-colour absence-of-information treatment. See
+// notes/adr/0004-otter-room-live-state.md, Decision 1: occupancy is the
+// whole status set here — no activity/headcount to colour alongside it.
+const OTTER_ROOM_STATUS_META: Record<OtterRoomOccupancy, { label: string; icon: string; class: string }> = {
+  empty: { label: "Empty", icon: "✓", class: "status-available" },
+  occupied: { label: "Occupied", icon: "●", class: "status-in-use" },
+  unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+};
+
+// Mirrors confirmedLabel()/aaRoomConfirmedLabel() exactly — a separate
+// copy, not a shared function, same reasoning as AA Room's own copy
+// above (different underlying row shape, nothing gained by forcing one
+// function to accept either).
+function otterRoomConfirmedLabel(confirmedAt: number | null): string {
+  if (confirmedAt === null) return "never reported";
+  const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+  if (minutes < 1) return "confirmed just now";
+  return `confirmed ${minutes} min ago`;
+}
+
+// Mirrors Laundry's remainingLabel() — Otter Room's expectedEndAt is the
+// same kind of optional, never-fabricated signal as a machine's (ADR
+// 0004, Decision 1), so "remaining time unknown" vs. "N min left" is the
+// same two-way split, not a new concept invented for this facility.
+function otterRoomRemainingLabel(expectedEndAt: number | null): { text: string; known: boolean } {
+  if (expectedEndAt === null) return { text: "remaining time unknown", known: false };
+  const minutes = Math.round((expectedEndAt - Date.now()) / 60_000);
+  return minutes > 0
+    ? { text: `${minutes} min left`, known: true }
+    : { text: "should be finishing", known: true };
 }
 
 function confirmedLabel(confirmedAt: number | null): string {
@@ -866,7 +907,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
          notes/adr/0003-aa-room-live-state.md). Matches .hall-view-canvas's
          general proportions so the workbench layout doesn't jump when
          switching tabs, without pretending to be the real thing. */
-      .aa-room-placeholder {
+      .aa-room-placeholder,
+      .otter-room-placeholder {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -881,37 +923,53 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
          --status-good/in-use/unknown palette), but larger and
          unbordered — it's the one and only status this panel shows, not
          one badge among many machine cards, so it reads as a headline,
-         not a tag. --- */
-      .aa-room-summary {
+         not a tag. Otter Room's panel reuses every one of these
+         selectors (a second class, not a separate copied block) — same
+         visual language, same underlying occupancy/empty/occupied/
+         unknown palette, see notes/adr/0004-otter-room-live-state.md. --- */
+      .aa-room-summary,
+      .otter-room-summary {
         display: block;
         margin: 0 0 1rem;
         max-width: none;
       }
-      .aa-room-status {
+      .aa-room-status,
+      .otter-room-status {
         display: flex;
         align-items: center;
         gap: 0.5em;
         font-size: 1.3rem;
         font-weight: 700;
       }
-      .aa-room-status.status-available { color: var(--status-good); }
-      .aa-room-status.status-in-use { color: var(--status-in-use); }
-      .aa-room-status.status-unknown { color: var(--ink-muted); }
-      .aa-room-status-icon { flex: none; }
+      .aa-room-status.status-available,
+      .otter-room-status.status-available { color: var(--status-good); }
+      .aa-room-status.status-in-use,
+      .otter-room-status.status-in-use { color: var(--status-in-use); }
+      .aa-room-status.status-unknown,
+      .otter-room-status.status-unknown { color: var(--ink-muted); }
+      .aa-room-status-icon,
+      .otter-room-status-icon { flex: none; }
       .aa-room-activity {
         margin: 0.4rem 0 0;
         font-size: 1rem;
         font-weight: 600;
         color: var(--ink-secondary);
       }
-      .aa-room-confirmed {
+      /* Otter Room's remaining-time line reuses Laundry's own
+         .remaining/.remaining.unknown-time rules directly (see the
+         markup below) rather than inventing a parallel copy — it's the
+         exact same "N min left" / "remaining time unknown" concept. */
+      .aa-room-confirmed,
+      .otter-room-confirmed {
         display: block;
         margin-top: 0.4rem;
       }
       /* Freshness is its own line, separate from the confirmed-N-min-ago
          text — restrained (no background fill, no border, no icon
          beyond colour) per the ADR's "明显但克制地提示" instruction: a
-         colour and a short sentence, not a banner. */
+         colour and a short sentence, not a banner. Otter Room has no
+         freshness concept (ADR 0004, Decision 4) — these rules stay
+         AA-Room-only. */
       .aa-room-freshness {
         margin: 0.35rem 0 0;
         font-size: 0.8rem;
@@ -920,11 +978,13 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       .aa-room-freshness.aa-freshness--stale { color: var(--warm); }
       .aa-room-freshness.aa-freshness--unknown { color: var(--ink-muted); font-style: italic; }
 
-      /* Always visible — no details/summary click-to-reveal. AA Room has
-         exactly one reportable thing, unlike Laundry's ten separate
-         machine cards where collapsing each genuinely cuts clutter;
-         hiding AA Room's only form bought nothing but an extra click. */
-      .aa-room-report {
+      /* Always visible — no details/summary click-to-reveal. AA Room and
+         Otter Room each have exactly one reportable thing, unlike
+         Laundry's ten separate machine cards where collapsing each
+         genuinely cuts clutter; hiding either facility's only form
+         bought nothing but an extra click. */
+      .aa-room-report,
+      .otter-room-report {
         margin-top: 1rem;
       }
       .aa-room-report-label {
@@ -934,6 +994,19 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         text-transform: uppercase;
         letter-spacing: 0.04em;
         color: var(--ink-muted);
+      }
+      /* Otter Room's own report form reuses .report-form's existing
+         select/input/button styling (form.report-form rules above) for
+         its plain number input — same minutes-field treatment as
+         Laundry's dryer estimate — plus .aa-room-toggle-group/
+         .aa-room-toggle for its occupancy pills (shared component, not
+         AA-Room-specific despite the class name's origin). Disabled
+         state for the minutes input (when occupancy isn't "occupied")
+         reuses form.report-form's own default disabled appearance via
+         the browser's native styling plus a small opacity cue. */
+      form.report-form input:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
       }
 
       /* v2's occupancy/activities controls — toggle-pill buttons in the
@@ -1228,7 +1301,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       <nav class="facility-tabs" aria-label="Shared spaces">
         <button type="button" class="facility-tab" data-facility="laundry" aria-current="page">Laundry</button>
         <button type="button" class="facility-tab" data-facility="aa-room">AA Room</button>
-        <button type="button" class="facility-tab" disabled>Otter Room</button>
+        <button type="button" class="facility-tab" data-facility="otter-room">Otter Room</button>
         <button type="button" class="facility-tab" disabled>Rabbit Room</button>
         <button type="button" class="facility-tab" disabled>Badger Room</button>
         <button type="button" class="facility-tab" disabled>Rat Room</button>
@@ -1285,6 +1358,24 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             <section class="hall-view" aria-hidden="true" data-aa-room={JSON.stringify(aaRoom)}>
               <div class="hall-view-canvas" id="aa-room-canvas"></div>
               <p class="hall-view-caption">Toad Hall — AA Room, live</p>
+            </section>
+          </div>
+
+          {/* Otter Room's left pane — deliberately a plain placeholder,
+              not a 3D scene: this stage is the practical panel + realtime
+              integration only (see notes/adr/0004-otter-room-live-state.md).
+              A real diorama (table, whiteboard, window, heater) is later
+              work, the same "Stage 2 placeholder, Stage 4 real scene"
+              order AA Room itself went through. No renderer-host.ts
+              registration at all — the generic facility-tab script below
+              only toggles [hidden] on .facility-view[data-facility], and
+              facility-switch.ts's selectHallFacility() already no-ops
+              safely for any key with nothing registered (see that
+              module's own note), so plain static markup is sufficient
+              for facility switching to work correctly with no 3D code. */}
+          <div class="facility-view" data-facility="otter-room" hidden>
+            <section class="hall-view otter-room-placeholder" aria-hidden="true">
+              <p>Otter Room visual coming next.</p>
             </section>
           </div>
         </div>
@@ -1504,6 +1595,101 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
                 </label>
               ))}
             </fieldset>
+            <button type="submit">Report</button>
+          </form>
+        </div>
+      </div>
+
+      {/* Otter Room's practical panel — same "initial render from this page
+          load's real state, then kept live by its own script" shape as
+          AA Room's panel above, but reading /api/otter-room's own shape
+          (occupancy + optional expectedEndAt, no activities, no
+          freshness — see notes/adr/0004-otter-room-live-state.md,
+          Decision 1/4). Hidden by default; the facility-tab script shows
+          it only when Otter Room is selected. No block-tabs: Otter Room
+          is one room, not five locations. */}
+      <div
+        class="facility-view otter-room-panel"
+        data-facility="otter-room"
+        hidden
+        data-otter-room={JSON.stringify(otterRoom)}
+      >
+        <section class="summary otter-room-summary" aria-label="Otter Room status">
+          <div class:list={["otter-room-status", OTTER_ROOM_STATUS_META[otterRoom.occupancy].class]}>
+            <span class="otter-room-status-icon" aria-hidden="true">{OTTER_ROOM_STATUS_META[otterRoom.occupancy].icon}</span>
+            <span class="otter-room-status-label">{OTTER_ROOM_STATUS_META[otterRoom.occupancy].label}</span>
+          </div>
+          {/* Always rendered, hidden when not occupied — same "stable node,
+              toggled, never built from scratch" shape as Laundry's
+              .remaining paragraph, since Otter Room's expectedEndAt is the
+              same kind of optional, never-fabricated signal (ADR 0004,
+              Decision 1). */}
+          <p
+            class:list={[
+              "remaining",
+              "otter-room-remaining",
+              otterRoom.occupancy === "occupied" &&
+                otterRoomRemainingLabel(otterRoom.expectedEndAt).known === false &&
+                "unknown-time",
+            ]}
+            hidden={otterRoom.occupancy !== "occupied"}
+          >
+            {otterRoom.occupancy === "occupied" ? otterRoomRemainingLabel(otterRoom.expectedEndAt).text : ""}
+          </p>
+          <span class="confirmed otter-room-confirmed">{otterRoomConfirmedLabel(otterRoom.confirmedAt)}</span>
+        </section>
+
+        {/* Otter Room has exactly one reportable thing, same reasoning as
+            AA Room's own always-visible form (no details/summary
+            click-to-reveal — see .aa-room-report's own note). Only
+            empty/occupied are ever offered — unknown is never a
+            reportable value (ADR 0004, Decision 1). The occupancy toggle
+            reuses .aa-room-toggle/.aa-room-toggle-group's exact pill
+            styling — a shared visual component for a binary/multi-select
+            toggle group, not an AA-Room-specific one, despite the class
+            name's origin; reusing it here avoids a second, identical CSS
+            block for the same visual pattern. */}
+        <div class="report otter-room-report">
+          <p class="aa-room-report-label">Update status</p>
+          {/* data-version kept in sync with every canonical state this
+              panel receives, same as Laundry's/AA Room's own forms. The
+              minutes input mirrors Laundry's dryer estimate field exactly
+              (a plain optional number-of-minutes-from-now, converted to
+              an absolute expectedEndAt on submit) — the simplest, fastest
+              interaction already proven there, not a new time-picker
+              invented for this facility. See notes/adr/0004-otter-room-
+              live-state.md: no booking calendar, no future reservation. */}
+          <form class="report-form otter-room-report-form" data-version={otterRoom.version}>
+            <fieldset class="aa-room-toggle-group otter-room-occupancy" aria-label="Otter Room status">
+              <label class="aa-room-toggle">
+                <input type="radio" name="occupancy" value="empty" checked={otterRoom.occupancy === "empty"} />
+                <span>Empty</span>
+              </label>
+              <label class="aa-room-toggle">
+                <input type="radio" name="occupancy" value="occupied" checked={otterRoom.occupancy === "occupied"} />
+                <span>Occupied</span>
+              </label>
+            </fieldset>
+            {/* Disabled (and cleared, by the report script's sync
+                function) whenever occupancy isn't "occupied" — the same
+                "never carry a stale value into the wrong kind of report"
+                discipline AA Room's activity checkboxes already use, and
+                the direct answer to "ensure submission doesn't carry an
+                old value" for an Empty report: a disabled, emptied input
+                has nothing to submit in the first place. Capped at 240
+                (4 hours) client-side as a fast-feedback mirror of the
+                server's own real ceiling (ADR 0004, Decision 2) — the
+                server re-validates regardless, this is just UX, not the
+                actual guard. */}
+            <input
+              type="number"
+              name="minutes"
+              min="1"
+              max="240"
+              placeholder="minutes left (optional)"
+              aria-label="Expected minutes remaining, optional"
+              disabled={otterRoom.occupancy !== "occupied"}
+            />
             <button type="submit">Report</button>
           </form>
         </div>
@@ -2188,6 +2374,210 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             const label = STATUS_META[(current as AaRoomState).occupancy]?.label ?? (current as AaRoomState).occupancy;
             alert(
               `AA Room changed since you last saw it — it's now reported as "${label}". ` +
+                "The panel shows that now; check it and report again if it's still wrong.",
+            );
+            return;
+          }
+
+          alert("couldn't save that report — try again");
+        });
+      }
+    </script>
+
+    {/* Otter Room — its own, separate state and script, same shape as AA
+        Room's script above: OtterRoomState is deliberately not the
+        Machine or AaRoomState shape (no activities, no freshness — see
+        notes/adr/0004-otter-room-live-state.md), so this is its own
+        small "render canonical state into these DOM nodes" function.
+        Wired into the page's one shared SSE connection
+        (src/lib/live-stream.ts) from the start — no separate "Stage 3"
+        step the way AA Room had, since Otter Room's backend already
+        ships realtime support. No 3D hook at all this stage — the left
+        pane is a plain placeholder (see the markup above), so there is
+        no applyOtterRoomStateToScene() to call, unlike AA Room's
+        applyAaRoomStateToScene(). */}
+    <script>
+      import { onOtterRoomEvent, onOpen } from "../lib/live-stream.ts";
+
+      type OtterRoomOccupancy = "empty" | "occupied" | "unknown";
+      interface OtterRoomState {
+        occupancy: OtterRoomOccupancy;
+        expectedEndAt: number | null;
+        confirmedAt: number | null;
+        version: number;
+      }
+
+      const STATUS_META: Record<OtterRoomOccupancy, { label: string; icon: string; class: string }> = {
+        empty: { label: "Empty", icon: "✓", class: "status-available" },
+        occupied: { label: "Occupied", icon: "●", class: "status-in-use" },
+        unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+      };
+
+      // Mirrors confirmedLabel()/remainingLabel() elsewhere on this page —
+      // all need the client's current clock, so none can be shared
+      // directly across the server/client boundary; kept tiny and
+      // behaviourally identical instead of invented differently here.
+      function confirmedLabel(confirmedAt: number | null): string {
+        if (confirmedAt === null) return "never reported";
+        const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+        if (minutes < 1) return "confirmed just now";
+        return `confirmed ${minutes} min ago`;
+      }
+
+      function remainingLabel(expectedEndAt: number | null): { text: string; known: boolean } {
+        if (expectedEndAt === null) return { text: "remaining time unknown", known: false };
+        const minutes = Math.round((expectedEndAt - Date.now()) / 60_000);
+        return minutes > 0
+          ? { text: `${minutes} min left`, known: true }
+          : { text: "should be finishing", known: true };
+      }
+
+      const panel = document.querySelector<HTMLElement>(".otter-room-panel");
+      const statusEl = panel?.querySelector<HTMLElement>(".otter-room-status");
+      const statusIconEl = panel?.querySelector<HTMLElement>(".otter-room-status-icon");
+      const statusLabelEl = panel?.querySelector<HTMLElement>(".otter-room-status-label");
+      const remainingEl = panel?.querySelector<HTMLElement>(".otter-room-remaining");
+      const confirmedEl = panel?.querySelector<HTMLElement>(".otter-room-confirmed");
+      const form = panel?.querySelector<HTMLFormElement>(".otter-room-report-form");
+      const occupancyRadios = form
+        ? Array.from(form.querySelectorAll<HTMLInputElement>('input[name="occupancy"]'))
+        : [];
+      const minutesInput = form?.querySelector<HTMLInputElement>('input[name="minutes"]') ?? null;
+      function occupancyValue(): string | undefined {
+        return occupancyRadios.find((r) => r.checked)?.value;
+      }
+
+      // Applies Otter Room's canonical state to the panel — used for the
+      // initial server-rendered state (called once below), this
+      // browser's own PATCH response (success or 409 conflict alike),
+      // and any other session's push over SSE. Mirrors Laundry's
+      // applyMachineUpdate() and AA Room's applyAaRoomUpdate(): one
+      // canonical update path, never a second client-side state model to
+      // drift from the server's.
+      function applyOtterRoomUpdate(room: OtterRoomState): void {
+        if (!statusEl || !statusIconEl || !statusLabelEl || !remainingEl || !confirmedEl || !form) {
+          return;
+        }
+
+        const meta = STATUS_META[room.occupancy];
+        statusEl.className = `otter-room-status ${meta.class}`;
+        statusIconEl.textContent = meta.icon;
+        statusLabelEl.textContent = meta.label;
+
+        if (room.occupancy === "occupied") {
+          const remaining = remainingLabel(room.expectedEndAt);
+          remainingEl.hidden = false;
+          remainingEl.classList.toggle("unknown-time", !remaining.known);
+          remainingEl.textContent = remaining.text;
+        } else {
+          remainingEl.hidden = true;
+          remainingEl.textContent = "";
+        }
+
+        confirmedEl.textContent = confirmedLabel(room.confirmedAt);
+
+        form.dataset.version = String(room.version);
+      }
+
+      // Disables (and clears) the minutes input whenever occupancy isn't
+      // "occupied" — the direct guarantee that an Empty report never
+      // carries a leftover estimate (ADR 0004, Decision 2: expectedEndAt
+      // is per-observation, never inherited). Recomputed from the full
+      // current selection every time anything changes, same "never a
+      // one-way disable with no re-enable path" discipline AA Room's own
+      // syncActivityControls() uses.
+      function syncMinutesInput(): void {
+        if (!minutesInput) return;
+        const occupied = occupancyValue() === "occupied";
+        minutesInput.disabled = !occupied;
+        if (!occupied) minutesInput.value = "";
+      }
+
+      if (panel) {
+        const initial = JSON.parse(panel.dataset.otterRoom!) as OtterRoomState;
+        applyOtterRoomUpdate(initial);
+
+        for (const radio of occupancyRadios) radio.addEventListener("change", syncMinutesInput);
+        syncMinutesInput();
+
+        // A push from ANY session's report or decay transition, over the
+        // page's one shared SSE connection. applyOtterRoomUpdate() only
+        // ever writes the display elements and never touches
+        // occupancyRadios/minutesInput, so a resident mid-way through
+        // choosing their own report is never overwritten by someone
+        // else's — the same property Laundry's/AA Room's own report
+        // forms already have.
+        onOtterRoomEvent((room) => {
+          applyOtterRoomUpdate(room);
+        });
+
+        // (Re)connect re-fetches current Otter Room state — the same
+        // "a (re)connection's own read is itself a qualifying read"
+        // principle every other facility's onOpen() handler already
+        // relies on.
+        onOpen(() => {
+          fetch("/api/otter-room")
+            .then((res) => res.json() as Promise<OtterRoomState>)
+            .then(applyOtterRoomUpdate);
+        });
+
+        form?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const occupancy = occupancyValue()!;
+          // Only read when occupied AND the input is actually enabled —
+          // mirrors AA Room's own "checked AND currently-enabled" guard
+          // on its activity checkboxes, so a stale value sitting in a
+          // disabled input can never be submitted as part of an Empty
+          // report even if syncMinutesInput() somehow hadn't cleared it.
+          const minutesRaw = occupancy === "occupied" && minutesInput && !minutesInput.disabled
+            ? minutesInput.value
+            : "";
+          const minutes = minutesRaw === "" ? null : Number(minutesRaw);
+          const ifVersion = Number(form!.dataset.version);
+
+          // No reporterId here, same as every other facility's report
+          // script — the actor is resolved server-side from this
+          // browser's session cookie
+          // (notes/adr/0002-identity-and-permissions.md). expectedEndAt
+          // is only ever sent when occupied and a minute estimate was
+          // actually given — an Empty report, or an occupied report with
+          // no estimate, omits the field entirely, which the server
+          // treats as "no estimate for this report" and stores as null
+          // (ADR 0004, Decision 2: never inherited from a prior report).
+          const res = await fetch("/api/otter-room", {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              occupancy,
+              ifVersion,
+              expectedEndAt:
+                occupancy === "occupied" && minutes !== null ? Date.now() + minutes * 60_000 : undefined,
+            }),
+          });
+
+          if (res.ok) {
+            const room = (await res.json()) as OtterRoomState;
+            applyOtterRoomUpdate(room);
+            syncMinutesInput();
+            return;
+          }
+
+          if (res.status === 409) {
+            // Same conflict UX as every other facility's report script:
+            // say so plainly, show the state the server actually holds,
+            // let the resident decide whether to report again — never a
+            // silent overwrite, never a silent reload. Mirrors AA Room's
+            // own handling exactly: applyOtterRoomUpdate() only touches
+            // the display elements, and syncMinutesInput() reacts to
+            // THIS browser's own still-selected radio, which an incoming
+            // conflict never changes — the resident's in-progress
+            // selection is left alone, same as every other facility.
+            const { current } = await res.json();
+            applyOtterRoomUpdate(current as OtterRoomState);
+            syncMinutesInput();
+            const label = STATUS_META[(current as OtterRoomState).occupancy]?.label ?? (current as OtterRoomState).occupancy;
+            alert(
+              `Otter Room changed since you last saw it — it's now reported as "${label}". ` +
                 "The panel shows that now; check it and report again if it's still wrong.",
             );
             return;
