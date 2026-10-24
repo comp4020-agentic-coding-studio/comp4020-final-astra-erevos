@@ -87,3 +87,28 @@ CREATE TABLE IF NOT EXISTS aa_room (
   reporter_id   TEXT,
   version       INTEGER NOT NULL DEFAULT 1
 );
+
+-- Otter Room: Toad Live's third facility. See
+-- notes/adr/0004-otter-room-live-state.md. A single row (the room has no
+-- sub-locations the way `machines` has five), same shape as `aa_room`. No
+-- `activities` column: unlike AA Room, nothing about this small study room
+-- calls for an independent-simultaneous-activity taxonomy (ADR 0004,
+-- Decision 1/3) — occupancy alone, plus an optional expected_end_at, is
+-- the whole model. reporter_id references sessions.id, same meaning as
+-- machines.reporter_id/aa_room.reporter_id (ADR 0002) — never a
+-- client-asserted value.
+--
+-- expected_end_at is a resident's own optional carried-over estimate from
+-- the door's paper sign-up sheet — never fabricated by the app (CLAUDE.md)
+-- — and, unlike a dryer's, is capped on write at confirmed_at + 4 hours
+-- (ADR 0004, Decision 2): the 4-hour figure is a real Toad Hall community
+-- norm, not a provisional placeholder standing in for missing data.
+CREATE TABLE IF NOT EXISTS otter_room (
+  id              TEXT PRIMARY KEY DEFAULT 'otter-room',
+  occupancy       TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
+  expected_end_at INTEGER,
+  confirmed_at    INTEGER,
+  reporter_id     TEXT,
+  version         INTEGER NOT NULL DEFAULT 1
+);

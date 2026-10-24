@@ -360,9 +360,10 @@ class LiveStream {
   }
 
   // Reads blocks until one is an `aa-room` event matching `predicate` (or
-  // the deadline passes). Any `machine` event seen along the way — this
-  // stream is shared with every other spec file running in parallel — is
-  // asserted to actually be a machine event (never something that merely
+  // the deadline passes). A `machine` or `otter-room` event seen along the
+  // way — this stream is shared with every other spec file running in
+  // parallel, including spec/otter-room.test.ts (ADR 0004) — is asserted
+  // to actually be that kind of payload (never something that merely
   // looks like one), then skipped.
   async nextAaRoomEvent(
     timeoutMs: number,
@@ -381,11 +382,17 @@ class LiveStream {
         expect(parsed.data).toHaveProperty("id");
         continue;
       }
+      if (parsed.name === "otter-room") {
+        // Confirm this is genuinely an otter-room payload (no
+        // activities), not an aa-room payload mislabeled.
+        expect(parsed.data).not.toHaveProperty("activities");
+        continue;
+      }
       expect(parsed.name).toBe("aa-room");
       const event = parsed.data as AaRoomEvent;
       // An aa-room event must never carry a machine-shaped `id` field —
-      // confirms the two event types stay structurally distinct on the
-      // wire, not just differently named.
+      // confirms the event types stay structurally distinct on the wire,
+      // not just differently named.
       expect(event).not.toHaveProperty("id");
       if (predicate(event)) return event;
     }

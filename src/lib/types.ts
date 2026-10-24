@@ -110,3 +110,50 @@ export interface AaRoomState {
   // having already fired).
   freshness: "fresh" | "stale" | null;
 }
+
+// Otter Room — Toad Live's third facility. See
+// notes/adr/0004-otter-room-live-state.md: occupancy alone, no activity
+// taxonomy (unlike AA Room, this small study room has no
+// independent-simultaneous-activity fact to represent — ADR 0004,
+// Decision 1/3), plus an optional expectedEndAt a resident may carry over
+// from the door's paper sign-up sheet, mirroring Laundry's
+// Machine.expectedEndAt in spirit (a real but never-fabricated signal)
+// while adding a real, decided 4-hour ceiling Laundry's dryer has no
+// equivalent of (see OTTER_ROOM_MAX_OCCUPIED_MS in src/lib/otter-room.ts).
+export type OtterRoomOccupancy = "empty" | "occupied" | "unknown";
+export const VALID_OTTER_ROOM_OCCUPANCIES: readonly OtterRoomOccupancy[] = [
+  "empty",
+  "occupied",
+  "unknown",
+];
+
+// "unknown" is never a value a resident's PATCH may send — see ADR 0004,
+// Decision 1 (same "unknown is not a reportable value" rule AA Room's
+// occupancy already follows, ADR 0003 Decision 2): it represents "there
+// is currently no fresh-enough observation," which only seeding or decay
+// (never a report) can produce.
+export type ReportableOtterRoomOccupancy = Extract<OtterRoomOccupancy, "empty" | "occupied">;
+export const VALID_REPORTABLE_OTTER_ROOM_OCCUPANCIES: readonly ReportableOtterRoomOccupancy[] = [
+  "empty",
+  "occupied",
+];
+
+export interface OtterRoomState {
+  occupancy: OtterRoomOccupancy;
+  // Only ever non-null alongside occupancy "occupied" — a resident's own
+  // carried-over estimate from the door's paper sign-up sheet, never
+  // fabricated from an assumed session length (CLAUDE.md). Validated on
+  // write to satisfy now < expectedEndAt <= now + 4h (ADR 0004, Decision
+  // 2), and never inherited from a prior report — every PATCH fully
+  // replaces this field (NULL when omitted or when occupancy is "empty"),
+  // never merges into whatever the row previously held.
+  expectedEndAt: number | null;
+  confirmedAt: number | null;
+  // Server-owned, starts at 1 — the exact same contract as
+  // Machine.version/AaRoomState.version above.
+  version: number;
+  // No freshness field, unlike AaRoomState — ADR 0004, Decision 4: Otter
+  // Room uses Laundry's plain "confirmed N minutes ago" label
+  // (confirmedAt alone is enough for that), not AA Room's derived
+  // fresh/stale/null three-way split.
+}

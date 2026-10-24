@@ -1,4 +1,4 @@
-import type { AaRoomState, Machine } from "./types.ts";
+import type { AaRoomState, Machine, OtterRoomState } from "./types.ts";
 
 // Crit 9's real-time transport: a single in-process subscriber list,
 // correct because this app runs as one Node process on one Fly machine
@@ -14,17 +14,19 @@ import type { AaRoomState, Machine } from "./types.ts";
 // replay/history is kept here — a (re)connecting client re-fetches
 // current persisted state instead (see src/pages/api/stream.ts).
 //
-// Stage 3 (AA Room) widens this from a Machine-only callback to a
+// Stage 3 (AA Room) widened this from a Machine-only callback to a
 // discriminated union — see notes/adr/0003-aa-room-live-state.md's
 // Mechanics section, which flagged this exact widening as real,
 // necessary work rather than something already generic. A discriminated
-// union, not a loose `Machine | AaRoomState`, so a subscriber (and
-// src/pages/api/stream.ts, the only one today) can switch on `kind` and
-// get full type narrowing, and so adding a third facility later is one
-// more variant here, not a new parallel subscriber list.
+// union, not a loose `Machine | AaRoomState | OtterRoomState`, so a
+// subscriber (and src/pages/api/stream.ts, the only one today) can switch
+// on `kind` and get full type narrowing, and so adding a facility is one
+// more variant here, not a new parallel subscriber list. Otter Room (ADR
+// 0004) is the third variant, added the same way.
 export type BroadcastPayload =
   | { kind: "machine"; machine: Machine }
-  | { kind: "aa-room"; room: AaRoomState };
+  | { kind: "aa-room"; room: AaRoomState }
+  | { kind: "otter-room"; room: OtterRoomState };
 
 type Subscriber = (payload: BroadcastPayload) => void;
 
@@ -39,7 +41,9 @@ export function subscribe(fn: Subscriber): () => void {
 // speculatively. src/lib/db.ts calls this with `{ kind: "machine", ... }`
 // from both the resident-report path (reportStatus) and the lazy-decay
 // path (decayed); src/lib/aa-room.ts calls it with `{ kind: "aa-room",
-// ... }` from the equivalent two places (reportAaRoomStatus, decayedAaRoom)
+// ... }` from the equivalent two places (reportAaRoomStatus, decayedAaRoom);
+// src/lib/otter-room.ts calls it with `{ kind: "otter-room", ... }` from
+// its own equivalent two places (reportOtterRoomStatus, decayedOtterRoom)
 // — each exactly once per real write, so every open session sees the same
 // canonical state change regardless of which facility or what caused it.
 export function broadcast(payload: BroadcastPayload): void {

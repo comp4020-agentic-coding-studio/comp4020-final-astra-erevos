@@ -6,14 +6,15 @@ import { subscribe } from "../../lib/realtime.ts";
 // server-driven decay alike. Writes stay plain HTTP PATCH; see
 // notes/adr/0001-realtime-and-concurrent-updates.md.
 //
-// Stage 3 (AA Room): still exactly one SSE connection, one subscriber
-// list — see notes/adr/0003-aa-room-live-state.md. The single
-// subscribe() callback below switches on the broadcast payload's `kind`
-// and writes the matching named SSE event (`event: machine` or
-// `event: aa-room`), so the two facilities' events are told apart on the
-// wire without a discriminator field inside `machine`'s own JSON body —
-// the existing `event: machine` listener in src/pages/index.astro, and
-// every test keyed on it, sees exactly the same shape it always has.
+// Stage 3 (AA Room) and ADR 0004 (Otter Room): still exactly one SSE
+// connection, one subscriber list. The single subscribe() callback below
+// switches on the broadcast payload's `kind` and writes the matching
+// named SSE event (`event: machine`, `event: aa-room`, or
+// `event: otter-room`), so the three facilities' events are told apart on
+// the wire without a discriminator field inside any one payload's own
+// JSON body — the existing `event: machine`/`event: aa-room` listeners,
+// and every test keyed on them, see exactly the same shape they always
+// have.
 //
 // No initial snapshot and no event replay/history here: a client that
 // (re)connects re-fetches current persisted state itself (see
@@ -40,9 +41,8 @@ export const GET: APIRoute = ({ request }) => {
 
       unsubscribe = subscribe((payload) => {
         try {
-          const eventName = payload.kind === "machine" ? "machine" : "aa-room";
           const data = payload.kind === "machine" ? payload.machine : payload.room;
-          controller.enqueue(encoder.encode(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`));
+          controller.enqueue(encoder.encode(`event: ${payload.kind}\ndata: ${JSON.stringify(data)}\n\n`));
         } catch {
           // The controller is already closed (client gone) — the
           // `cancel`/`abort` handling below will unsubscribe shortly;
