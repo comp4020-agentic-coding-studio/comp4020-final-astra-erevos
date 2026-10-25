@@ -48,9 +48,10 @@
 // hover/focus/tween logic changed — only who calls requestAnimationFrame
 // and owns the WebGLRenderer instance.
 import * as THREE from "three";
-import type { AaRoomState, Location, Machine, MachineType } from "../types.ts";
+import type { AaRoomState, Location, Machine, MachineType, OtterRoomState } from "../types.ts";
 import { buildRoom } from "./room.ts";
 import { buildAaRoom } from "./aa-room.ts";
+import { buildOtterRoom } from "./otter-room.ts";
 import { ROOM_PLACEMENTS } from "./hall-layout.ts";
 import { buildRoomLabel } from "./room-label.ts";
 import { buildMachineMesh, type MachineMeshHandle } from "./machine-mesh.ts";
@@ -112,6 +113,7 @@ const OVERVIEW_FILL = 0.9;
 
 const LAUNDRY_FACILITY_KEY = "laundry";
 const AA_ROOM_FACILITY_KEY = "aa-room";
+const OTTER_ROOM_FACILITY_KEY = "otter-room";
 
 // Stage 6 — the workbench-layout page wants the right-hand information
 // panel to highlight and scroll to whichever machine's 3D model is
@@ -551,6 +553,124 @@ export function mountAaRoom(container: HTMLElement, initial: AaRoomState): HallV
   function dispose(): void {
     unregisterFacility(AA_ROOM_FACILITY_KEY);
     mountedAaRoomScenes.delete(registeredScene);
+  }
+
+  return { dispose };
+}
+
+// Otter Room — the same one-Set-of-callbacks subscriber shape
+// mountedScenes/mountedAaRoomScenes already use: index.astro's Otter Room
+// script calls applyOtterRoomStateToScene() from inside its own
+// onOtterRoomEvent/onOpen handlers (src/lib/live-stream.ts), this
+// module's only subscriber to that path — no second EventSource, no
+// second state model. See notes/adr/0004-otter-room-live-state.md.
+interface MountedOtterRoomScene {
+  applyState(occupancy: OtterRoomState["occupancy"]): void;
+}
+const mountedOtterRoomScenes = new Set<MountedOtterRoomScene>();
+
+export function applyOtterRoomStateToScene(state: OtterRoomState): void {
+  for (const scene of mountedOtterRoomScenes) scene.applyState(state.occupancy);
+}
+
+// Otter Room's mount — a third facility registered against the exact same
+// renderer-host.ts shared renderer Laundry/AA Room already use. No second
+// WebGLRenderer, no second requestAnimationFrame loop. Like AA Room,
+// Otter Room has exactly one room (no hall-layout.ts-style placement) and
+// no interaction at all — occupancy is this room's one reportable state,
+// already fully expressed by the dashboard panel, so no per-object
+// hover/focus/HUD is needed here either.
+export function mountOtterRoom(container: HTMLElement, initial: OtterRoomState): HallViewHandle {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf6efe1); // --page, same as Laundry/AA Room's
+
+  let aspect = Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+
+  const keyLight = new THREE.DirectionalLight(0xfff4e0, 2.2);
+  keyLight.position.set(4, 6, 3);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.camera.left = -4;
+  keyLight.shadow.camera.right = 4;
+  keyLight.shadow.camera.top = 4;
+  keyLight.shadow.camera.bottom = -4;
+  keyLight.shadow.camera.near = 1;
+  keyLight.shadow.camera.far = 15;
+  keyLight.shadow.bias = -0.002;
+  scene.add(keyLight);
+
+  const hemiLight = new THREE.HemisphereLight(0xfdf6e6, 0x8a6a4a, 0.6);
+  scene.add(hemiLight);
+
+  const room = buildOtterRoom();
+  scene.add(room.group);
+  room.applyState(initial.occupancy);
+
+  const overviewLookAt = new THREE.Vector3();
+  let overviewZoom = 1;
+  function computeOverviewFit(): void {
+    const corners = boundsCorners([room.group]);
+    const fit = fitBoundsToRect(
+      corners,
+      ISO_VIEW_DIRECTION,
+      new THREE.Vector3(0, 1, 0),
+      aspect,
+      -OVERVIEW_FILL,
+      OVERVIEW_FILL,
+      -OVERVIEW_FILL,
+      OVERVIEW_FILL,
+    );
+    overviewLookAt.copy(fit.lookAt);
+    overviewZoom = 1 / fit.frustumHalfHeight;
+    camera.left = -1 * aspect;
+    camera.right = 1 * aspect;
+    camera.top = 1;
+    camera.bottom = -1;
+    camera.position.copy(overviewLookAt).addScaledVector(ISO_VIEW_DIRECTION, CAMERA_DISTANCE);
+    camera.zoom = overviewZoom;
+    camera.lookAt(overviewLookAt);
+    camera.updateProjectionMatrix();
+  }
+  computeOverviewFit();
+
+  const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  let elapsed = 0;
+
+  const registeredScene: MountedOtterRoomScene = {
+    applyState(occupancy) {
+      room.applyState(occupancy);
+      if (prefersReducedMotion) {
+        // Same reduced-motion contract as mountAaRoom(): every loop (here,
+        // just the heater's glow pulse and figure idle sway) stops at a
+        // single static pose/frame that still correctly shows the current
+        // state, rather than animating to get there. This one immediate
+        // call is also the LAST — the render loop below never calls
+        // update() again while reduced motion is on.
+        room.update(0);
+      }
+    },
+  };
+  mountedOtterRoomScenes.add(registeredScene);
+
+  registerFacility(OTTER_ROOM_FACILITY_KEY, {
+    scene,
+    camera,
+    resize(width, height) {
+      aspect = width / Math.max(height, 1);
+      computeOverviewFit();
+    },
+    update(deltaSeconds) {
+      if (prefersReducedMotion) return; // see applyState's own note above
+      elapsed += deltaSeconds;
+      room.update(elapsed);
+    },
+  });
+  activateFacility(OTTER_ROOM_FACILITY_KEY, container);
+
+  function dispose(): void {
+    unregisterFacility(OTTER_ROOM_FACILITY_KEY);
+    mountedOtterRoomScenes.delete(registeredScene);
   }
 
   return { dispose };

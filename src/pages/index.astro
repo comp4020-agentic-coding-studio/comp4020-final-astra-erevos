@@ -902,13 +902,13 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         display: none !important;
       }
 
-      /* AA Room's placeholder left pane — deliberately plain, not a 3D
-         scene (that's later work; see
-         notes/adr/0003-aa-room-live-state.md). Matches .hall-view-canvas's
-         general proportions so the workbench layout doesn't jump when
-         switching tabs, without pretending to be the real thing. */
-      .aa-room-placeholder,
-      .otter-room-placeholder {
+      /* AA Room's placeholder left pane — unused now that AA Room has its
+         own real 3D diorama (Stage 4), but kept rather than deleted: it's
+         dead CSS, not a live bug, and removing it is a separate, unrelated
+         cleanup from this facility's own work. (Otter Room never had its
+         own copy of this rule — its left pane went straight to a real 3D
+         scene without a placeholder stage.) */
+      .aa-room-placeholder {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1361,21 +1361,24 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             </section>
           </div>
 
-          {/* Otter Room's left pane — deliberately a plain placeholder,
-              not a 3D scene: this stage is the practical panel + realtime
-              integration only (see notes/adr/0004-otter-room-live-state.md).
-              A real diorama (table, whiteboard, window, heater) is later
-              work, the same "Stage 2 placeholder, Stage 4 real scene"
-              order AA Room itself went through. No renderer-host.ts
-              registration at all — the generic facility-tab script below
-              only toggles [hidden] on .facility-view[data-facility], and
-              facility-switch.ts's selectHallFacility() already no-ops
-              safely for any key with nothing registered (see that
-              module's own note), so plain static markup is sufficient
-              for facility switching to work correctly with no 3D code. */}
+          {/* Otter Room's left pane — a real 3D diorama (table, chairs,
+              whiteboard, window, heater), same cutaway low-poly language
+              as Laundry's/AA Room's, mounted onto the ONE shared renderer
+              (src/lib/hall-view/renderer-host.ts), never a second
+              WebGLRenderer. aria-hidden for the same reason Laundry's/AA
+              Room's hall-view are: every fact it shows is already stated
+              as accessible text in the Otter Room panel below. Hidden by
+              default; the facility-tab script shows it only when Otter
+              Room is selected. data-otter-room is the same
+              initial-state-from-this-page-load payload the Otter Room
+              panel's own script already reads from the info panel below —
+              read once here too so the 3D mount has the real starting
+              state without a second fetch. See
+              notes/adr/0004-otter-room-live-state.md. */}
           <div class="facility-view" data-facility="otter-room" hidden>
-            <section class="hall-view otter-room-placeholder" aria-hidden="true">
-              <p>Otter Room visual coming next.</p>
+            <section class="hall-view" aria-hidden="true" data-otter-room={JSON.stringify(otterRoom)}>
+              <div class="hall-view-canvas" id="otter-room-canvas"></div>
+              <p class="hall-view-caption">Toad Hall — Otter Room, live</p>
             </section>
           </div>
         </div>
@@ -1889,6 +1892,48 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       }
     </script>
 
+    {/* Otter Room's own 3D mount, same lazy-build-on-first-select shape as
+        AA Room's mount script above. See
+        notes/adr/0004-otter-room-live-state.md and
+        src/lib/hall-view/otter-room.ts. */}
+    <script>
+      import { mountOtterRoom } from "../lib/hall-view/scene.ts";
+      import { activateFacility } from "../lib/hall-view/renderer-host.ts";
+      import { onFacilitySelected } from "../lib/hall-view/facility-switch.ts";
+
+      interface OtterRoomSceneState {
+        occupancy: "empty" | "occupied" | "unknown";
+        expectedEndAt: number | null;
+        confirmedAt: number | null;
+        version: number;
+      }
+
+      const otterRoomContainer = document.getElementById("otter-room-canvas");
+      const otterRoomSection = otterRoomContainer?.closest<HTMLElement>(".hall-view") ?? null;
+
+      if (otterRoomContainer && otterRoomSection && otterRoomSection.dataset.otterRoom) {
+        let built = false;
+        onFacilitySelected("otter-room", () => {
+          if (built) {
+            activateFacility("otter-room", otterRoomContainer);
+            return;
+          }
+          built = true;
+          try {
+            const initial = JSON.parse(otterRoomSection.dataset.otterRoom!) as OtterRoomSceneState;
+            mountOtterRoom(otterRoomContainer, initial);
+          } catch {
+            // Same fallback as Laundry's/AA Room's own mount — WebGL
+            // unavailable, or anything else went wrong building the
+            // scene. The Otter Room panel below is a complete experience
+            // on its own either way.
+            otterRoomContainer.remove();
+            otterRoomSection.querySelector(".hall-view-caption")?.remove();
+          }
+        });
+      }
+    </script>
+
     <script>
       // Stage 2.3: the 3D hall view's only hook into live updates — see
       // scene.ts's own note on why importing this here, from a second,
@@ -2392,12 +2437,16 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         Wired into the page's one shared SSE connection
         (src/lib/live-stream.ts) from the start — no separate "Stage 3"
         step the way AA Room had, since Otter Room's backend already
-        ships realtime support. No 3D hook at all this stage — the left
-        pane is a plain placeholder (see the markup above), so there is
-        no applyOtterRoomStateToScene() to call, unlike AA Room's
-        applyAaRoomStateToScene(). */}
+        ships realtime support. Also feeds the 3D scene via
+        applyOtterRoomStateToScene() (src/lib/hall-view/scene.ts), the
+        exact same cross-script-block sharing Laundry's/AA Room's own
+        scripts already rely on for their own scene hooks — a safe no-op
+        via scene.ts's mountedOtterRoomScenes Set when nothing has mounted
+        yet (e.g. a resident whose current tab is Laundry and has never
+        switched to Otter Room). */}
     <script>
       import { onOtterRoomEvent, onOpen } from "../lib/live-stream.ts";
+      import { applyOtterRoomStateToScene } from "../lib/hall-view/scene.ts";
 
       type OtterRoomOccupancy = "empty" | "occupied" | "unknown";
       interface OtterRoomState {
@@ -2455,6 +2504,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // canonical update path, never a second client-side state model to
       // drift from the server's.
       function applyOtterRoomUpdate(room: OtterRoomState): void {
+        applyOtterRoomStateToScene(room);
+
         if (!statusEl || !statusIconEl || !statusLabelEl || !remainingEl || !confirmedEl || !form) {
           return;
         }
