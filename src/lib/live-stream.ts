@@ -1,4 +1,4 @@
-import type { AaRoomState, Machine, OtterRoomState } from "./types.ts";
+import type { AaRoomState, Machine, OtterRoomState, RabbitRoomState } from "./types.ts";
 
 // Stage 3 (AA Room) — the ONE SSE connection for the whole page, shared
 // between index.astro's Laundry dashboard script and its AA Room panel
@@ -17,17 +17,20 @@ import type { AaRoomState, Machine, OtterRoomState } from "./types.ts";
 // lets each registered "open" listener re-fetch its own current state —
 // see src/pages/api/stream.ts's own note on why.
 //
-// ADR 0004 (Otter Room) adds a third listener set/event the same way
-// Stage 3 added the second — one more named SSE event over the same
-// connection, no new EventSource.
+// ADR 0004 (Otter Room) added a third listener set/event the same way
+// Stage 3 added the second; ADR 0005 (Rabbit Room) adds a fourth, same
+// shape — one more named SSE event over the same connection, no new
+// EventSource.
 type MachineListener = (machine: Machine) => void;
 type AaRoomListener = (room: AaRoomState) => void;
 type OtterRoomListener = (room: OtterRoomState) => void;
+type RabbitRoomListener = (room: RabbitRoomState) => void;
 type OpenListener = () => void;
 
 const machineListeners = new Set<MachineListener>();
 const aaRoomListeners = new Set<AaRoomListener>();
 const otterRoomListeners = new Set<OtterRoomListener>();
+const rabbitRoomListeners = new Set<RabbitRoomListener>();
 const openListeners = new Set<OpenListener>();
 
 const events = new EventSource("/api/stream");
@@ -47,6 +50,11 @@ events.addEventListener("otter-room", (event) => {
   for (const listener of otterRoomListeners) listener(room);
 });
 
+events.addEventListener("rabbit-room", (event) => {
+  const room = JSON.parse((event as MessageEvent<string>).data) as RabbitRoomState;
+  for (const listener of rabbitRoomListeners) listener(room);
+});
+
 events.addEventListener("open", () => {
   for (const listener of openListeners) listener();
 });
@@ -61,6 +69,10 @@ export function onAaRoomEvent(fn: AaRoomListener): void {
 
 export function onOtterRoomEvent(fn: OtterRoomListener): void {
   otterRoomListeners.add(fn);
+}
+
+export function onRabbitRoomEvent(fn: RabbitRoomListener): void {
+  rabbitRoomListeners.add(fn);
 }
 
 // Fires once per connect/reconnect — each registered listener is
