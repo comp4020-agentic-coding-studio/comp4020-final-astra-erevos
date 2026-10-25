@@ -1,9 +1,9 @@
 # ADR 0004: Otter Room's shared live state
 
-**Status**: Implemented and verified locally — production verification
-pending. This ADR fixed the state model, statuses, and decay rules for
-Toad Live's third facility before any schema, API, or UI work began, the
-same order ADR 0001/0002/0003 each used (see
+**Status**: Implemented and verified live. This ADR fixed the state
+model, statuses, and decay rules for Toad Live's third facility before
+any schema, API, or UI work began, the same order ADR 0001/0002/0003 each
+used (see
 `PROCESS.md`'s "Rewritten each time the project's shape genuinely changed"
 convention). Everything below — Decisions 1 through 4, and Mechanics — was
 built exactly as decided here; nothing in the implementation diverged from
@@ -510,3 +510,18 @@ a tight crop) caught that too. Both are now correct: activity props track
 `occupancy` exactly like the figures do, and the window is mounted on the
 left wall (the one that's actually camera-facing), same side as the
 heater.
+
+**Production** (`d824aec` deployed to Fly): CI's `check` job green against
+the containerized build, then its `deploy` job green (`flyctl deploy`,
+production version 34). A post-deploy smoke check against the live URL
+(`https://comp4020-final-astra-erevos.fly.dev`), not just the local dev
+server, confirmed: Laundry, AA Room, and Otter Room all render correctly,
+panel and 3D canvas alike; an Otter Room `occupied` report with
+`expectedEndAt` and a subsequent `empty` report both round-tripped
+correctly; two independent browser sessions saw each other's report over
+SSE with no reload; facility switching (Laundry/AA Room/Otter Room, both
+directions) left every canvas intact; both sessions produced zero browser
+console errors; `flyctl logs` showed each session's own distinct
+pseudonym (`Toad-79D6CF`, `Toad-860755`) against its own `report
+facility=otter-room ... result=ok` line, matching the browser that sent
+it; and `/readme/` returned `200`.

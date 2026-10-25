@@ -177,6 +177,12 @@ floating with no wall behind it, a bug two wrong-theory material fixes
 missed before a screenshot of the *whole room* (not a tight crop) showed
 the real cause and it was moved to the camera-facing wall instead.
 
+`d824aec` shipped this to Fly (CI green, production version 34); a
+post-deploy smoke check against the live URL confirmed all three
+facilities, Otter Room's report flow, and cross-session SSE sync all work
+in production, not just locally — see the ADR's own Verification section
+for the full detail.
+
 ## What's still ahead
 
 The broader freshness policy — `available`/`unknown` lifetimes, the
