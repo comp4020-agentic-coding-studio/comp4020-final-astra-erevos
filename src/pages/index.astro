@@ -1433,24 +1433,25 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             </section>
           </div>
 
-          {/* Rabbit Room's left pane — deliberately a plain placeholder at
-              this stage, not a 3D scene: this is the practical panel +
-              realtime integration stage only (see
-              notes/adr/0005-rabbit-room-live-state.md). A real diorama
-              (the long room, joined desks, kitchen corner) is later work,
-              the same "placeholder stage, then a real scene" order every
-              other facility has gone through. Reuses .aa-room-placeholder
-              — generic styling with no AA-Room-specific behaviour, and
-              currently otherwise unused dead CSS (AA Room has its own real
-              3D scene now) — rather than adding a near-identical rule. No
-              renderer-host.ts registration at all: the generic
-              facility-tab script only toggles [hidden] on
-              .facility-view[data-facility], and
-              facility-switch.ts's selectHallFacility() already no-ops
-              safely for any key with nothing registered. */}
+          {/* Rabbit Room's left pane — a real 3D diorama (two windows, a
+              whiteboard, the joined-desks centre table, chairs, a kitchen
+              zone at the far end, plus decorative occupied-only figures —
+              see src/lib/hall-view/rabbit-room.ts), mounted onto the ONE
+              shared renderer (src/lib/hall-view/renderer-host.ts), never a
+              second WebGLRenderer. aria-hidden for the same reason every
+              other facility's hall-view is: every fact it shows is
+              already stated as accessible text in the Rabbit Room panel
+              below. Hidden by default; the facility-tab script shows it
+              only when Rabbit Room is selected. data-rabbit-room is the
+              same initial-state-from-this-page-load payload the Rabbit
+              Room panel's own script already reads from the info panel
+              below — read once here too so the 3D mount has the real
+              starting state without a second fetch. See
+              notes/adr/0005-rabbit-room-live-state.md. */}
           <div class="facility-view" data-facility="rabbit-room" hidden>
-            <section class="hall-view aa-room-placeholder" aria-hidden="true">
-              <p>Rabbit Room visual coming next.</p>
+            <section class="hall-view" aria-hidden="true" data-rabbit-room={JSON.stringify(rabbitRoom)}>
+              <div class="hall-view-canvas" id="rabbit-room-canvas"></div>
+              <p class="hall-view-caption">Toad Hall — Rabbit Room, live</p>
             </section>
           </div>
         </div>
@@ -2086,6 +2087,48 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             // on its own either way.
             otterRoomContainer.remove();
             otterRoomSection.querySelector(".hall-view-caption")?.remove();
+          }
+        });
+      }
+    </script>
+
+    {/* Rabbit Room's own 3D mount, same lazy-build-on-first-select shape as
+        every other facility's mount script. See
+        notes/adr/0005-rabbit-room-live-state.md and
+        src/lib/hall-view/rabbit-room.ts. */}
+    <script>
+      import { mountRabbitRoom } from "../lib/hall-view/scene.ts";
+      import { activateFacility } from "../lib/hall-view/renderer-host.ts";
+      import { onFacilitySelected } from "../lib/hall-view/facility-switch.ts";
+
+      interface RabbitRoomSceneState {
+        occupancy: "empty" | "occupied" | "unknown";
+        expectedEndAt: number | null;
+        confirmedAt: number | null;
+        version: number;
+      }
+
+      const rabbitRoomContainer = document.getElementById("rabbit-room-canvas");
+      const rabbitRoomSection = rabbitRoomContainer?.closest<HTMLElement>(".hall-view") ?? null;
+
+      if (rabbitRoomContainer && rabbitRoomSection && rabbitRoomSection.dataset.rabbitRoom) {
+        let built = false;
+        onFacilitySelected("rabbit-room", () => {
+          if (built) {
+            activateFacility("rabbit-room", rabbitRoomContainer);
+            return;
+          }
+          built = true;
+          try {
+            const initial = JSON.parse(rabbitRoomSection.dataset.rabbitRoom!) as RabbitRoomSceneState;
+            mountRabbitRoom(rabbitRoomContainer, initial);
+          } catch {
+            // Same fallback as every other facility's own mount — WebGL
+            // unavailable, or anything else went wrong building the
+            // scene. The Rabbit Room panel below is a complete experience
+            // on its own either way.
+            rabbitRoomContainer.remove();
+            rabbitRoomSection.querySelector(".hall-view-caption")?.remove();
           }
         });
       }
@@ -2802,12 +2845,16 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         see notes/adr/0005-rabbit-room-live-state.md), so this is its own
         small "render canonical state into these DOM nodes" function.
         Wired into the page's one shared SSE connection
-        (src/lib/live-stream.ts) from the start. No 3D hook at all this
-        stage — the left pane is a plain placeholder (see the markup
-        above), so there is no applyRabbitRoomStateToScene() to call,
-        unlike Otter Room's applyOtterRoomStateToScene(). */}
+        (src/lib/live-stream.ts) from the start. Also feeds the 3D scene
+        via applyRabbitRoomStateToScene() (src/lib/hall-view/scene.ts),
+        the exact same cross-script-block sharing every other facility's
+        own scripts already rely on for their own scene hooks — a safe
+        no-op via scene.ts's mountedRabbitRoomScenes Set when nothing has
+        mounted yet (e.g. a resident whose current tab is Laundry and has
+        never switched to Rabbit Room). */}
     <script>
       import { onRabbitRoomEvent, onOpen } from "../lib/live-stream.ts";
+      import { applyRabbitRoomStateToScene } from "../lib/hall-view/scene.ts";
 
       type RabbitRoomOccupancy = "empty" | "occupied" | "unknown";
       interface RabbitRoomState {
@@ -2864,6 +2911,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // applyOtterRoomUpdate(): one canonical update path, never a second
       // client-side state model to drift from the server's.
       function applyRabbitRoomUpdate(room: RabbitRoomState): void {
+        applyRabbitRoomStateToScene(room);
+
         if (!statusEl || !statusIconEl || !statusLabelEl || !remainingEl || !confirmedEl || !form) {
           return;
         }
