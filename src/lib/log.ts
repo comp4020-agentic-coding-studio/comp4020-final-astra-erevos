@@ -133,6 +133,35 @@ export function formatOtterRoomReportRejected(params: { actor: string; reason: s
   ]);
 }
 
+// Rabbit Room's own report-outcome lines — same shape as the Otter Room
+// pair above, naming the facility ("rabbit-room"). See
+// notes/adr/0005-rabbit-room-live-state.md.
+export function formatRabbitRoomReportOutcome(params: {
+  actor: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "rabbit-room"],
+    ["action", "report"],
+    ["occupancy", params.occupancy],
+    ["result", params.result],
+    ["version", params.version],
+  ]);
+}
+
+export function formatRabbitRoomReportRejected(params: { actor: string; reason: string }): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "rabbit-room"],
+    ["action", "report"],
+    ["result", "rejected"],
+    ["reason", params.reason],
+  ]);
+}
+
 export function logSessionCreated(pseudonym: string): void {
   console.log(formatSessionCreated(pseudonym));
 }
@@ -175,4 +204,17 @@ export function logOtterRoomReportOutcome(params: {
 
 export function logOtterRoomReportRejected(params: { actor: string; reason: string }): void {
   console.log(formatOtterRoomReportRejected(params));
+}
+
+export function logRabbitRoomReportOutcome(params: {
+  actor: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): void {
+  console.log(formatRabbitRoomReportOutcome(params));
+}
+
+export function logRabbitRoomReportRejected(params: { actor: string; reason: string }): void {
+  console.log(formatRabbitRoomReportRejected(params));
 }

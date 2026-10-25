@@ -157,3 +157,44 @@ export interface OtterRoomState {
   // (confirmedAt alone is enough for that), not AA Room's derived
   // fresh/stale/null three-way split.
 }
+
+// Rabbit Room — Toad Live's fourth facility. See
+// notes/adr/0005-rabbit-room-live-state.md: the same occupancy +
+// optional-expectedEndAt shape as Otter Room, independently re-derived
+// from Rabbit Room's own facts (group study and shared meals are real,
+// distinct uses, but neither co-occurring nor decision-relevant to a
+// resident checking the app — ADR 0005, Decision 1/3), not copied because
+// the two rooms happen to look alike. No activities, no headcount, no
+// kitchen-appliance status.
+export type RabbitRoomOccupancy = "empty" | "occupied" | "unknown";
+export const VALID_RABBIT_ROOM_OCCUPANCIES: readonly RabbitRoomOccupancy[] = [
+  "empty",
+  "occupied",
+  "unknown",
+];
+
+// "unknown" is never a value a resident's PATCH may send — see ADR 0005,
+// Decision 1, same rule as every other facility's occupancy/status.
+export type ReportableRabbitRoomOccupancy = Extract<RabbitRoomOccupancy, "empty" | "occupied">;
+export const VALID_REPORTABLE_RABBIT_ROOM_OCCUPANCIES: readonly ReportableRabbitRoomOccupancy[] = [
+  "empty",
+  "occupied",
+];
+
+export interface RabbitRoomState {
+  occupancy: RabbitRoomOccupancy;
+  // Only ever non-null alongside occupancy "occupied" — a resident's own
+  // carried-over estimate from the door's paper sign-up sheet, never
+  // fabricated from an assumed session length (CLAUDE.md). Validated on
+  // write to satisfy now < expectedEndAt <= now + 4h (ADR 0005, Decision
+  // 2), and never inherited from a prior report — every PATCH fully
+  // replaces this field, never merges into whatever the row previously
+  // held.
+  expectedEndAt: number | null;
+  confirmedAt: number | null;
+  // Server-owned, starts at 1 — same contract as every other facility's
+  // version field.
+  version: number;
+  // No freshness field, same reasoning as OtterRoomState — ADR 0005,
+  // Decision 4.
+}

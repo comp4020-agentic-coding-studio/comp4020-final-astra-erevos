@@ -360,11 +360,12 @@ class LiveStream {
   }
 
   // Reads blocks until one is an `aa-room` event matching `predicate` (or
-  // the deadline passes). A `machine` or `otter-room` event seen along the
-  // way — this stream is shared with every other spec file running in
-  // parallel, including spec/otter-room.test.ts (ADR 0004) — is asserted
-  // to actually be that kind of payload (never something that merely
-  // looks like one), then skipped.
+  // the deadline passes). A `machine`, `otter-room`, or `rabbit-room`
+  // event seen along the way — this stream is shared with every other
+  // spec file running in parallel, including spec/otter-room.test.ts
+  // (ADR 0004) and spec/rabbit-room.test.ts (ADR 0005) — is asserted to
+  // actually be that kind of payload (never something that merely looks
+  // like one), then skipped.
   async nextAaRoomEvent(
     timeoutMs: number,
     predicate: (event: AaRoomEvent) => boolean = () => true,
@@ -382,8 +383,8 @@ class LiveStream {
         expect(parsed.data).toHaveProperty("id");
         continue;
       }
-      if (parsed.name === "otter-room") {
-        // Confirm this is genuinely an otter-room payload (no
+      if (parsed.name === "otter-room" || parsed.name === "rabbit-room") {
+        // Confirm this is genuinely an otter-room/rabbit-room payload (no
         // activities), not an aa-room payload mislabeled.
         expect(parsed.data).not.toHaveProperty("activities");
         continue;

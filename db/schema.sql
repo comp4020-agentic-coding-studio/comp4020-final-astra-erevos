@@ -112,3 +112,31 @@ CREATE TABLE IF NOT EXISTS otter_room (
   reporter_id     TEXT,
   version         INTEGER NOT NULL DEFAULT 1
 );
+
+-- Rabbit Room: Toad Live's fourth facility. See
+-- notes/adr/0005-rabbit-room-live-state.md. A single row, same shape as
+-- `otter_room` — not because this table was copied for convenience, but
+-- because the ADR independently re-derived the same occupancy+optional-
+-- expected_end_at model from Rabbit Room's own facts (group study and
+-- shared meals are real, distinct uses, but neither co-occurring nor
+-- worth distinguishing for a resident checking the app — ADR 0005,
+-- Decision 1/3). No `activities` column, no kitchen-appliance status
+-- column: the room's stove/sink/microwave/kettle/cabinets are named
+-- furniture, never something this app reports the condition of.
+-- reporter_id references sessions.id, same meaning as every other
+-- facility's reporter_id (ADR 0002) — never a client-asserted value.
+--
+-- expected_end_at is a resident's own optional carried-over estimate from
+-- the door's paper sign-up sheet — never fabricated by the app (CLAUDE.md)
+-- — capped on write at confirmed_at + 4 hours (ADR 0005, Decision 2): a
+-- real Toad Hall community norm confirmed for Rabbit Room specifically,
+-- not inferred from Otter Room's own figure.
+CREATE TABLE IF NOT EXISTS rabbit_room (
+  id              TEXT PRIMARY KEY DEFAULT 'rabbit-room',
+  occupancy       TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
+  expected_end_at INTEGER,
+  confirmed_at    INTEGER,
+  reporter_id     TEXT,
+  version         INTEGER NOT NULL DEFAULT 1
+);
