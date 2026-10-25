@@ -1,10 +1,14 @@
 # ADR 0005: Rabbit Room's shared live state
 
-**Status**: Decided — not yet implemented. This ADR fixes the state model,
-statuses, and decay rules for Toad Live's fourth facility before any
-schema, API, or UI work begins, the same order ADR 0001/0002/0003/0004
-each used (see `PROCESS.md`'s "Rewritten each time the project's shape
-genuinely changed" convention).
+**Status**: Implemented and verified locally — production verification
+pending. This ADR fixed the state model, statuses, and decay rules for
+Toad Live's fourth facility before any schema, API, or UI work began, the
+same order ADR 0001/0002/0003/0004 each used (see `PROCESS.md`'s
+"Rewritten each time the project's shape genuinely changed" convention).
+Backend, practical panel, and 3D scene are all built and locally verified
+per the Verification section below; this status moves to "verified live"
+only after a post-deploy production smoke check, the same gate ADR 0004
+used for Otter Room.
 
 **This ADR's conclusion looks identical to ADR 0004's (Otter Room) — the
 same three-value `occupancy`, the same optional `expectedEndAt`, the same
@@ -385,19 +389,60 @@ if Rabbit Room's actual use ever turns out to need that distinction
 involved), that would be a new decision with its own ADR, not a default
 this one quietly assumes.
 
-## Verification plan (not yet run — nothing is implemented)
+## Verification (run; see status line for what's still outstanding)
 
-Mirroring ADR 0004's own verification plan and its actual execution:
+Mirroring ADR 0004's own verification plan, and now its actual execution
+for Rabbit Room:
 
-- automated: a persistence test; `ifVersion`/409 conflict coverage; a
-  `PATCH` rejection test for `occupancy: "unknown"`; rejection tests for
-  `expectedEndAt` beyond 4 hours and at-or-before `now`; a rejection test
-  for `expectedEndAt` alongside `occupancy: "empty"`; a no-inheritance
-  test; unit tests for the decay function's three branches against
-  constructed timestamps, following `spec/otter-room-decay.test.ts`'s
-  throwaway-database technique; identity/permission tests; an SSE test
-  confirming an already-open stream receives `event: rabbit-room`.
-- manual, real browser: the same Playwright-based verification Otter
-  Room's backend/panel/3D stages each used, including a post-deploy
-  production smoke check before this ADR's status moves to "verified
-  live."
+- **automated — 32 new tests, 148/148 total across the suite.**
+  `spec/rabbit-room.test.ts` (18 tests): HTTP-level persistence; `GET`
+  shape confirming no `freshness`/`activities` field; occupied with and
+  without `expectedEndAt`; empty always clearing `expectedEndAt`;
+  per-observation non-inheritance; rejection of `expectedEndAt` alongside
+  `empty`; rejection beyond the 4-hour ceiling and at-or-before `now`;
+  rejection of `occupancy: "unknown"` as a reported value; rejection of a
+  non-integer `ifVersion`; a stale `ifVersion` returning `409` with
+  current canonical state and no mutation; `401` with no session; `400` on
+  a client-asserted actor field; SSE coverage confirming an already-open
+  stream receives `event: rabbit-room` on both an accepted report and
+  not on a `409`/`400`. `spec/rabbit-room-decay.test.ts` (14 tests):
+  store-level coverage of fresh-seed and idempotent-seed behavior; `empty`
+  staying put within 15 minutes and decaying past it; `occupied` with no
+  `expectedEndAt` staying put within 4 hours and decaying past it;
+  `occupied` with `expectedEndAt` decaying at the estimate, never at the
+  4-hour mark, when the estimate is earlier; the 4-hour ceiling capping an
+  estimate that would otherwise run longer; non-inheritance enforced at
+  the store layer independent of the API route; a decay transition
+  broadcasting exactly once and not broadcasting when nothing is stale;
+  a stale `ifVersion` write rejected with no mutation and no broadcast.
+  Running the full suite also caught and fixed a stale assumption in
+  `spec/aa-room.test.ts`'s SSE test helper (it assumed any event on the
+  shared stream that wasn't `machine` or `otter-room` must be `aa-room`) —
+  see `PROCESS.md`.
+- **manual, real browser — practical panel.** Two independent browser
+  sessions against the dev server confirmed a report in one reaches the
+  other within about a second with no reload; Empty/Occupied toggling
+  with and without a minutes estimate was exercised directly through the
+  form, including the minutes input's 240-minute (4h) cap; a forced stale
+  `ifVersion` produced the conflict path in the UI, not a silent
+  overwrite.
+- **manual, real browser — 3D scene, in two stages.** Stage 1 (static
+  Empty shell, no figures) was screenshotted and reviewed for room
+  structure alone before any occupancy layer was added — see
+  `PROCESS.md` for why this was done as its own stage. Stage 2 confirmed,
+  via screenshots and a continuous `occupied → empty → occupied →
+  unknown` cycle: Empty shows the static room with no figures or props;
+  Occupied shows a small fixed set of neutral seated/standing figures with
+  zero residue carried over between cycles; Unknown shows the full room
+  structure desaturated and dimmed (confirmed numerically via pixel
+  sampling, not just by eye) with no figures; an `expectedEndAt` estimate
+  never changes the 3D state beyond plain `occupied`; reduced motion was
+  confirmed to still render a static occupied pose rather than losing
+  state information. Facility switching (Laundry → AA Room → Otter Room →
+  Rabbit Room → Laundry) was confirmed to tear down and remount cleanly
+  through the existing shared renderer, with zero console/page errors
+  throughout.
+- **still outstanding:** a post-deploy production smoke check against the
+  live Fly URL, the same gate ADR 0004 applied to Otter Room before moving
+  its status to "verified live." This ADR's status does not move to
+  "verified live" until that check actually runs.

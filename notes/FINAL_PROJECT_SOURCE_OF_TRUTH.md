@@ -120,7 +120,23 @@ Machine states (confirmed, not invented edge cases):
   - group study;
   - small gatherings / shared meals;
   - approximately twelve people;
-  - bookable.
+  - a paper sign-up sheet on the door, not a digital booking system.
+
+  **Confirmed and implemented (2026-10-26):** Toad Live's fourth
+  live-state facility, after Laundry, AA Room, and Otter Room — see
+  `notes/adr/0005-rabbit-room-live-state.md`. Live state is `empty` /
+  `occupied` / `unknown`, with the same kind of optional,
+  resident-estimated `expectedEndAt` Otter Room uses, never an activity
+  taxonomy, headcount, digital booking, or kitchen-appliance status —
+  group study and shared meals are two real, distinct uses of this room,
+  but knowing which one is happening has no decision-relevant value to a
+  resident checking the app, and the two typically don't co-occur.
+  `empty` decays to `unknown` after 15 minutes, a fresh product freshness
+  judgement made for this room's own volatility, not a transferred rule;
+  `occupied` decays at `min(expectedEndAt, confirmedAt + 4h)`, the same
+  4-hour figure confirmed as a real, already-existing Toad Hall norm for
+  this room specifically. No booking calendar, no future reservation —
+  the same scope boundary Laundry, AA Room, and Otter Room all keep.
 
 - **Badger Room**
   - formal meeting / interview room;
@@ -374,15 +390,16 @@ The following should be interrogated before they are fixed:
   confirmed as non-expiring — see §3);
 - whether historical state is useful or only the present matters;
 - how many *non-laundry* rooms should exist in the first full version —
-  **partially decided**: AA Room and Otter Room are both now confirmed
-  and implemented (§3); Rabbit/Badger/Rat/Weasel remain open;
+  **partially decided**: AA Room, Otter Room, and Rabbit Room are all now
+  confirmed and implemented (§3); Badger/Rat/Weasel remain open;
 - whether rooms are manually updated, timer-driven or both — **decided
   for every implemented facility so far**: manually reported, with lazy
   read-triggered decay back toward `unknown` (never a timer or a
-  connection event) — see §3's Laundry/AA Room/Otter Room entries;
-- the role of booking information, if any — **decided for Otter Room**:
-  none. Live state only, no booking calendar, no future reservation (§3).
-  Still open for any room not yet implemented;
+  connection event) — see §3's Laundry/AA Room/Otter Room/Rabbit Room
+  entries;
+- the role of booking information, if any — **decided for Otter Room and
+  Rabbit Room**: none. Live state only, no booking calendar, no future
+  reservation (§3). Still open for any room not yet implemented;
 - the scope of community notes;
 - how the 3D / animated layer should work;
 - which claims about "good" should become automated checks.

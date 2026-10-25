@@ -69,14 +69,19 @@ let this file, the README's argument, and the code drift apart.
   build account creation, passwords, or verification of who a person
   actually is without a new decision record. See
   `notes/adr/0002-identity-and-permissions.md`.
-- **Otter Room's occupied decay is `min(expectedEndAt, confirmedAt + 4h)`,
-  not the Laundry dryer's if/else fallback shape.** The 4-hour ceiling is
-  a real, already-existing Toad Hall norm (residents already don't use
-  the room past four hours) and always applies, whether or not a resident
-  supplied an estimate — it is not a provisional placeholder standing in
-  for missing data the way `UNTIMED_IN_USE_DECAY_MS` is for an untimed
-  dryer, and must never be "simplified" into that two-branch shape. See
-  `notes/adr/0004-otter-room-live-state.md`, Decision 2.
+- **Otter Room's and Rabbit Room's occupied decay is each
+  `min(expectedEndAt, confirmedAt + 4h)`, not the Laundry dryer's if/else
+  fallback shape.** Each room's 4-hour ceiling is a real, already-existing
+  Toad Hall norm confirmed independently for that specific room (residents
+  already don't use either room past four hours) and always applies,
+  whether or not a resident supplied an estimate — it is not a
+  provisional placeholder standing in for missing data the way
+  `UNTIMED_IN_USE_DECAY_MS` is for an untimed dryer, and must never be
+  "simplified" into that two-branch shape. This is not a claim that every
+  future room shares this contract — each new facility re-earns its own
+  decay shape from its own facts (see `notes/adr/0004-otter-room-live-state.md`
+  and `notes/adr/0005-rabbit-room-live-state.md`, each Decision 2); it
+  only happens to be settled, independently, for these two rooms so far.
 
 ## Persistence
 

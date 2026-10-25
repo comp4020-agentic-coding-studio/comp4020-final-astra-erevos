@@ -183,12 +183,72 @@ facilities, Otter Room's report flow, and cross-session SSE sync all work
 in production, not just locally — see the ADR's own Verification section
 for the full detail.
 
+## Rabbit Room: same conclusion, independently earned
+
+Rabbit Room's live state ended up structurally identical to Otter Room's —
+`occupancy` plus optional `expectedEndAt`, the same 4-hour/15-minute decay
+shape — but
+[`notes/adr/0005-rabbit-room-live-state.md`](notes/adr/0005-rabbit-room-live-state.md)
+re-derived each piece from Rabbit Room's own facts rather than copying
+ADR 0004. That mattered in practice, not just as a formality: Otter Room
+genuinely is used in different ways too — someone studying alone, a small
+group discussing together — but neither distinction has decision-relevant
+value to a resident checking the app, so there was never a reason to name
+them separately. Rabbit Room's two uses, group study and a shared meal,
+are a sharper case — clearly distinct and separately nameable — but the
+same decision-relevant-value test still comes out the same way: knowing
+*which* of the two is happening tells a resident nothing they'd act on
+differently, and the two don't typically co-occur, so there's no "several
+things happening at once" question for a field to answer either. Both
+rooms land on "no `activities` field," but for their own reasons, not by
+one resembling the other. Activity taxonomy, headcount, a booking
+calendar, and kitchen-appliance status were all declined by name for
+Rabbit Room — a room with a real stove and sink in it is exactly where "is
+the stove free" could otherwise creep in unnoticed as a plausible-sounding
+addition nobody asked for.
+
+The two decay numbers landing on the same values as Otter Room's is a
+coincidence of evidence, not a rule being reused: the 4-hour ceiling is a
+real community norm confirmed about Rabbit Room specifically, independent
+of Otter Room's own 4-hour fact; the 15-minute `empty` decay is a fresh
+product freshness judgement made for this room's own volatility (larger
+capacity, no fixed schedule), not a universal rule for "rooms like this."
+
+Implementation deliberately did not extract a generic occupancy-room store
+shared between Otter Room and Rabbit Room, even though the two are
+byte-for-byte the same shape. The abstraction's cost — indirection in two
+already-stable, independently-verified modules, for a project with no
+third facility of this exact shape yet — outweighed the benefit of
+avoiding one small duplicated file. Backend tests did catch the same SSE
+test-helper gap Otter Room's arrival once caused for AA Room:
+`spec/aa-room.test.ts`'s stream helper assumed any event that wasn't
+`machine` or `otter-room` must be `aa-room`, which broke once a fourth
+event name (`rabbit-room`) could appear on the same shared stream during
+parallel test runs — fixed by widening the helper to recognize both
+sibling event names, not by special-casing Rabbit Room into it.
+
+The 3D stage changed its own order on purpose, learning from Otter Room's
+two bugs (an occupied-only prop left stuck after reporting back to empty;
+a window mounted on a backface-culled wall). Rabbit Room's static Empty
+shell was built, screenshotted, and reviewed for room structure alone
+*before* any occupancy-driven layer existed, and wall-facing was reasoned
+through up front — back and left walls are camera-visible under the fixed
+isometric view, right wall is culled — so both windows and the whiteboard
+went straight onto visible walls with no trial-and-error. The occupied
+state adds a small fixed set of figures around the shared table, but
+deliberately in a neutral pose (level head, forearms resting on the
+table) that reads as either "studying" or "eating" — unlike Otter Room's
+"desk" pose, which is intentionally built to look like reading. The scene
+never infers or decides which of the two real activities is happening; it
+expresses `occupied` and nothing more, the same boundary Decision 1 of
+ADR 0005 draws in the data model.
+
 ## What's still ahead
 
 The broader freshness policy — `available`/`unknown` lifetimes, the
 provisional 12-hour window — stays open pending real cycle-time data,
 tracked in `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. Verified
 resident identity is a possible later upgrade, not a current gap.
-Presence remains out of scope. Rabbit, Badger, Rat, and Weasel Rooms
-remain unimplemented and open for later Final Project scope decisions —
-not permanently out of scope, just not yet interrogated.
+Presence remains out of scope. Badger, Rat, and Weasel Rooms remain
+unimplemented and open for later Final Project scope decisions — not
+permanently out of scope, just not yet interrogated.
