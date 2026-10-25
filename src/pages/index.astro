@@ -1,8 +1,8 @@
 ---
 import { LOCATIONS, listMachines, type Machine, type MachineStatus, type MachineType } from "../lib/db.ts";
-import { getAaRoom } from "../lib/aa-room.ts";
-import { getOtterRoom, OTTER_ROOM_MAX_OCCUPIED_MS } from "../lib/otter-room.ts";
-import { getRabbitRoom, RABBIT_ROOM_MAX_OCCUPIED_MS } from "../lib/rabbit-room.ts";
+import { getAaRoom } from "../lib/aa-room-db.ts";
+import { getOtterRoom, OTTER_ROOM_MAX_OCCUPIED_MS } from "../lib/otter-room-db.ts";
+import { getRabbitRoom, RABBIT_ROOM_MAX_OCCUPIED_MS } from "../lib/rabbit-room-db.ts";
 import type { AaRoomActivity, AaRoomOccupancy, OtterRoomOccupancy, RabbitRoomOccupancy } from "../lib/types.ts";
 import {
   COOKIE_NAME,

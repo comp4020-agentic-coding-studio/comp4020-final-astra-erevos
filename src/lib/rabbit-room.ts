@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { db } from "./db.ts";
 import { broadcast } from "./realtime.ts";
 import type { RabbitRoomOccupancy, RabbitRoomState, ReportableRabbitRoomOccupancy } from "./types.ts";
 
@@ -36,19 +35,17 @@ interface RabbitRoomRow {
   version: number;
 }
 
-// Every function below takes an explicit `store` — defaulting to the
-// app's one shared connection (db.ts) — rather than importing `db`
-// directly at call sites. Mirrors src/lib/otter-room.ts's own
-// OtterRoomStore: this is what lets a decay test build its own throwaway
-// database (an in-memory node:sqlite instance) and exercise the REAL
-// decayedRabbitRoom()/getRabbitRoom() code path against it. Production
-// call sites (src/pages/api/rabbit-room.ts) never pass `store`.
+// Every function below takes an explicit, required `store` — this module
+// never imports src/lib/db.ts itself, deliberately: that's what lets
+// spec/rabbit-room-decay.test.ts import this module for its pure
+// logic/constants/store type without transitively opening a second real
+// SQLite connection to the app's own on-disk database (see
+// src/lib/rabbit-room-db.ts, the one place that wires these functions to
+// that shared connection — only it, and real production call sites that
+// import from it, ever touch db.ts). Mirrors src/lib/otter-room.ts's own
+// OtterRoomStore split the same way.
 export interface RabbitRoomStore {
   db: DatabaseSync;
-}
-
-function defaultStore(): RabbitRoomStore {
-  return { db };
 }
 
 // Exposed so a test building its own throwaway database can seed it the
@@ -56,7 +53,7 @@ function defaultStore(): RabbitRoomStore {
 // confirmed_at stays null rather than claiming a confirmation that never
 // happened (CLAUDE.md). Idempotent: safe to call against a database that
 // already has the row.
-export function seedRabbitRoomIfEmpty(store: RabbitRoomStore = defaultStore()): void {
+export function seedRabbitRoomIfEmpty(store: RabbitRoomStore): void {
   const existing = store.db.prepare("SELECT 1 FROM rabbit_room WHERE id = ?").get(RABBIT_ROOM_ID);
   if (existing) return;
   store.db.prepare("INSERT INTO rabbit_room (id) VALUES (?)").run(RABBIT_ROOM_ID);
@@ -123,7 +120,7 @@ function toRabbitRoomState(row: RabbitRoomRow): RabbitRoomState {
   };
 }
 
-export function getRabbitRoom(now: number = Date.now(), store: RabbitRoomStore = defaultStore()): RabbitRoomState {
+export function getRabbitRoom(now: number, store: RabbitRoomStore): RabbitRoomState {
   const row = store.db.prepare("SELECT * FROM rabbit_room WHERE id = ?").get(RABBIT_ROOM_ID) as
     | RabbitRoomRow
     | undefined;
@@ -176,8 +173,8 @@ export type RabbitRoomUpdateResult =
 export function reportRabbitRoomStatus(
   report: RabbitRoomReport,
   ifVersion: number,
-  now: number = Date.now(),
-  store: RabbitRoomStore = defaultStore(),
+  now: number,
+  store: RabbitRoomStore,
 ): RabbitRoomUpdateResult {
   const expectedEndAt = report.occupancy === "occupied" ? (report.expectedEndAt ?? null) : null;
 
@@ -198,12 +195,3 @@ export function reportRabbitRoomStatus(
 
   return { ok: false, reason: "stale", current: getRabbitRoom(now, store) };
 }
-
-// Self-seeds the app's one shared row against the app's one shared
-// connection (db.ts), the moment this module is first imported — the
-// same "seed at module load" shape src/lib/otter-room.ts uses, placed
-// here rather than in db.ts to avoid a db.ts -> rabbit-room.ts -> db.ts
-// import cycle. A throwaway test store built by a test is never touched
-// by this call — it calls seedRabbitRoomIfEmpty(store) explicitly,
-// against its own database.
-seedRabbitRoomIfEmpty();

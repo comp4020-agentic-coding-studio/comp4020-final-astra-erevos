@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { canonicalizeActivities, getAaRoom, reportAaRoomStatus } from "../../lib/aa-room.ts";
+import { canonicalizeActivities, getAaRoom, reportAaRoomStatus } from "../../lib/aa-room-db.ts";
 import { COOKIE_NAME, resolveSession } from "../../lib/sessions.ts";
 import { logAaRoomReportOutcome, logAaRoomReportRejected } from "../../lib/log.ts";
 import { isSafePositiveInteger } from "../../lib/validation.ts";

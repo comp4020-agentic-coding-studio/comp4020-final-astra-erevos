@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { getRabbitRoom, RABBIT_ROOM_MAX_OCCUPIED_MS, reportRabbitRoomStatus } from "../../lib/rabbit-room.ts";
+import { getRabbitRoom, RABBIT_ROOM_MAX_OCCUPIED_MS, reportRabbitRoomStatus } from "../../lib/rabbit-room-db.ts";
 import { COOKIE_NAME, resolveSession } from "../../lib/sessions.ts";
 import { logRabbitRoomReportOutcome, logRabbitRoomReportRejected } from "../../lib/log.ts";
 import { isSafePositiveInteger } from "../../lib/validation.ts";

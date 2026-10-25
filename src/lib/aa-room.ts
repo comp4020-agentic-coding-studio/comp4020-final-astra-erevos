@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { db } from "./db.ts";
 import { broadcast } from "./realtime.ts";
 import { computeFreshness } from "./freshness.ts";
 import {
@@ -114,23 +113,22 @@ export function migrateAaRoomActivitiesColumn(store: AaRoomStore): void {
     .run(JSON.stringify(activities), AA_ROOM_ID);
 }
 
-// Every function below takes an explicit `store` — defaulting to the
-// app's one shared connection (db.ts) — rather than importing `db`
-// directly at call sites. This is what lets a decay test build its own
-// throwaway database (an in-memory node:sqlite instance, no file, no
-// coordination with any other spec file's connection) and exercise the
-// REAL decayedAaRoom()/getAaRoom() code path against it, instead of
-// either mutating a process-wide DB_PATH (which Vitest's parallel test
-// files would race on) or re-implementing the decay SQL a second time
-// just for the test. Production call sites (src/pages/api/aa-room.ts)
-// never pass `store` — the default parameter is the only thing they see,
-// so this costs them nothing.
+// Every function below takes an explicit, required `store` — this module
+// never imports src/lib/db.ts itself, deliberately: that's what lets
+// spec/aa-room-decay.test.ts import this module for its pure
+// logic/constants/store type (and the migration helper) without
+// transitively opening a second real SQLite connection to the app's own
+// on-disk database (see src/lib/aa-room-db.ts, the one place that wires
+// these functions to that shared connection — only it, and real
+// production call sites that import from it, ever touch db.ts). This is
+// what lets a decay test build its own throwaway database (an in-memory
+// node:sqlite instance, no file, no coordination with any other spec
+// file's connection) and exercise the REAL decayedAaRoom()/getAaRoom()
+// code path against it, instead of either mutating a process-wide DB_PATH
+// (which Vitest's parallel test files would race on) or re-implementing
+// the decay SQL a second time just for the test.
 export interface AaRoomStore {
   db: DatabaseSync;
-}
-
-function defaultStore(): AaRoomStore {
-  return { db };
 }
 
 // Exposed so a test building its own throwaway database can seed it the
@@ -138,7 +136,7 @@ function defaultStore(): AaRoomStore {
 // yet, so confirmed_at stays null rather than claiming a confirmation
 // that never happened (same rule CLAUDE.md already states for machines).
 // Idempotent: safe to call against a database that already has the row.
-export function seedAaRoomIfEmpty(store: AaRoomStore = defaultStore()): void {
+export function seedAaRoomIfEmpty(store: AaRoomStore): void {
   const existing = store.db.prepare("SELECT 1 FROM aa_room WHERE id = ?").get(AA_ROOM_ID);
   if (existing) return;
   store.db.prepare("INSERT INTO aa_room (id) VALUES (?)").run(AA_ROOM_ID);
@@ -208,7 +206,7 @@ function toAaRoomState(row: AaRoomRow, now: number): AaRoomState {
   };
 }
 
-export function getAaRoom(now: number = Date.now(), store: AaRoomStore = defaultStore()): AaRoomState {
+export function getAaRoom(now: number, store: AaRoomStore): AaRoomState {
   const row = store.db.prepare("SELECT * FROM aa_room WHERE id = ?").get(AA_ROOM_ID) as
     | AaRoomRow
     | undefined;
@@ -261,8 +259,8 @@ export type AaRoomUpdateResult =
 export function reportAaRoomStatus(
   report: AaRoomReport,
   ifVersion: number,
-  now: number = Date.now(),
-  store: AaRoomStore = defaultStore(),
+  now: number,
+  store: AaRoomStore,
 ): AaRoomUpdateResult {
   const activities = report.occupancy === "occupied" ? canonicalizeActivities(report.activities) : [];
 
@@ -283,20 +281,3 @@ export function reportAaRoomStatus(
 
   return { ok: false, reason: "stale", current: getAaRoom(now, store) };
 }
-
-// Migrates, then self-seeds, the app's one shared row against the app's
-// one shared connection (db.ts), the moment this module is first
-// imported — the same "run DDL migrations, then seed, at module load"
-// shape db.ts itself uses for machines (migrateVersionColumn() before
-// seedIfEmpty()), placed here rather than in db.ts to avoid a db.ts ->
-// aa-room.ts -> db.ts import cycle (db.ts has no reason to know about AA
-// Room; this module already depends on db.ts one-way). Migration must run
-// before seeding: seedAaRoomIfEmpty() is a no-op against an
-// already-seeded row, so an already-deployed row is exactly the one this
-// order protects — it gets migrated in place, never re-seeded over. A
-// throwaway test store built by a test is never touched by either call
-// here — it calls seedAaRoomIfEmpty(store) (and, if it needs to exercise
-// the migration path itself, migrateAaRoomActivitiesColumn(store))
-// explicitly, against its own database.
-migrateAaRoomActivitiesColumn(defaultStore());
-seedAaRoomIfEmpty();

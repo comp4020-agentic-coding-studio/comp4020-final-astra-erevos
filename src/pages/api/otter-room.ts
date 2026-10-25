@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { getOtterRoom, OTTER_ROOM_MAX_OCCUPIED_MS, reportOtterRoomStatus } from "../../lib/otter-room.ts";
+import { getOtterRoom, OTTER_ROOM_MAX_OCCUPIED_MS, reportOtterRoomStatus } from "../../lib/otter-room-db.ts";
 import { COOKIE_NAME, resolveSession } from "../../lib/sessions.ts";
 import { logOtterRoomReportOutcome, logOtterRoomReportRejected } from "../../lib/log.ts";
 import { isSafePositiveInteger } from "../../lib/validation.ts";
