@@ -69,6 +69,14 @@ let this file, the README's argument, and the code drift apart.
   build account creation, passwords, or verification of who a person
   actually is without a new decision record. See
   `notes/adr/0002-identity-and-permissions.md`.
+- **Otter Room's occupied decay is `min(expectedEndAt, confirmedAt + 4h)`,
+  not the Laundry dryer's if/else fallback shape.** The 4-hour ceiling is
+  a real, already-existing Toad Hall norm (residents already don't use
+  the room past four hours) and always applies, whether or not a resident
+  supplied an estimate — it is not a provisional placeholder standing in
+  for missing data the way `UNTIMED_IN_USE_DECAY_MS` is for an untimed
+  dryer, and must never be "simplified" into that two-branch shape. See
+  `notes/adr/0004-otter-room-live-state.md`, Decision 2.
 
 ## Persistence
 

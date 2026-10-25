@@ -1,10 +1,13 @@
 # Toad Live
 
 Toad Live is a live status board for Toad Hall's shared spaces, kept
-current by whoever last walked past, not sensors. Laundry — five rooms,
-ten machines — is the first facility built, and the only one with real
-shared state today; the rest of the Hall is named in the navigation as
-where this goes next, not shipped.
+current by whoever last walked past, not sensors. Three facilities carry
+real shared state today: Laundry (five rooms, ten machines), the Anton
+Aalbers (AA) Room common room, and the Otter Room study room; the rest of
+the Hall is named in the navigation as where this goes next, not shipped.
+Laundry proved the shape; AA Room and Otter Room each earned their own
+state model from what's actually true about that specific room, not a
+template copied from Laundry's.
 
 ## Why this, and why for Toad Hall specifically
 
@@ -61,11 +64,13 @@ not owned. See `notes/adr/0002-identity-and-permissions.md`.
 ## What we chose not to build
 
 Verified resident identity, and any booking or reservation system — a
-status layer, not a scheduler. The non-laundry facilities aren't built
-yet, though the workbench reserves their place so adding one later is
-new server-backed state, not a redesign. Real-time delivery and
-concurrency were decided at Crit 9, identity at Crit 10, both verified
-live. Presence stays out of scope.
+status layer, not a scheduler. Otter Room's own paper sign-up sheet on
+the door is a real-world artifact Toad Live deliberately doesn't digitize;
+it shows the room's state right now, never a future reservation. Rabbit,
+Badger, Rat, and Weasel Rooms aren't built yet, though the workbench
+reserves their place so adding one later is new server-backed state, not
+a redesign. Real-time delivery and concurrency were decided at Crit 9,
+identity at Crit 10, both verified live. Presence stays out of scope.
 
 ## Enforced vs. judged
 

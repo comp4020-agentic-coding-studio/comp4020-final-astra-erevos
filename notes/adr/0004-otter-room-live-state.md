@@ -1,10 +1,15 @@
 # ADR 0004: Otter Room's shared live state
 
-**Status**: Decided — not yet implemented. This ADR fixes the state model,
-statuses, and decay rules for Toad Live's third facility before any schema,
-API, or UI work begins, the same order ADR 0001/0002/0003 each used (see
+**Status**: Implemented and verified locally — production verification
+pending. This ADR fixed the state model, statuses, and decay rules for
+Toad Live's third facility before any schema, API, or UI work began, the
+same order ADR 0001/0002/0003 each used (see
 `PROCESS.md`'s "Rewritten each time the project's shape genuinely changed"
-convention).
+convention). Everything below — Decisions 1 through 4, and Mechanics — was
+built exactly as decided here; nothing in the implementation diverged from
+this ADR. See Verification below for what was actually run, and
+`PROCESS.md`'s Otter Room entry for the two real bugs a real browser check
+caught that neither this ADR nor the automated test suite predicted.
 
 ## Context
 
@@ -35,10 +40,17 @@ the door's sign-up sheet as an expected end time. This is a real,
 occasionally-available signal, unlike AA Room, which this ADR's Decision 1
 argues has no equivalent signal at all for any of its activities.
 
-What this ADR does **not** decide: anything about the 3D scene's specific
-geometry or animation (implementation, following the existing
-`room.ts`/`aa-room.ts`/`aa-room-figures.ts` pattern once the state shape
-below exists to drive it), and nothing about any facility after Otter Room.
+What this ADR did **not** decide: anything about the 3D scene's specific
+geometry or animation — that was left as implementation, following the
+existing `room.ts`/`aa-room.ts`/`aa-room-figures.ts` pattern once the
+state shape below existed to drive it. It was since built
+(`src/lib/hall-view/otter-room.ts`/`otter-room-status-look.ts`/
+`otter-room-figures.ts`) in a way that stayed inside this ADR's own
+constraints without needing to revisit any of them — occupied shows
+figures and occupied-only activity props, empty/unknown show neither, and
+`expectedEndAt` never changes the scene, exactly as this ADR already
+required for the state model itself. This ADR still says nothing about
+any facility after Otter Room.
 
 ## Decision 1 — state model: occupancy only, no activity field
 
@@ -452,32 +464,49 @@ proportionally more than Laundry's `available`, for the same reason AA
 Room's `unknown` does (ADR 0003's Consequences) — judged correct given the
 room's real volatility, not a flaw to tune away.
 
-## Verification plan (not yet run — nothing is implemented)
+## Verification (run — implementation complete)
 
-Mirroring ADR 0003's own verification plan:
+Delivered in three staged commits (backend slice, practical panel,
+3D scene — see `PROCESS.md`), each checked before the next began:
 
-- automated: a persistence test (a report survives an independent later
-  `GET`); `ifVersion`/409 conflict coverage identical in shape to
-  `spec/concurrency.test.ts`; a `PATCH` rejection test for
-  `occupancy: "unknown"`; a `PATCH` rejection test for `expectedEndAt`
-  beyond 4 hours from now; a `PATCH` rejection test for `expectedEndAt`
-  at or before `now` (the lower bound, not just the ceiling); a `PATCH`
-  rejection test for `expectedEndAt` present alongside
-  `occupancy: "empty"`; a no-inheritance test — report `occupied` with an
-  `expectedEndAt`, then report `occupied` again with `expectedEndAt`
-  omitted, and confirm the second response's `expectedEndAt` is `null`,
-  not the first report's value; unit tests for the decay function's three
-  branches (`empty` past 15 min, `occupied` with no `expectedEndAt` past
-  4h, `occupied` with an `expectedEndAt` inside 4h that still passes
-  before the 4h ceiling would) against constructed timestamps, following
-  `spec/aa-room-decay.test.ts`'s own throwaway-database technique rather
-  than real elapsed time — the same "fixed constant, not a per-report
-  field" complication ADR 0003 flagged for its own 45-minute threshold
-  applies to Otter Room's 15-minute and 4-hour constants too;
-  identity/permission tests mirroring `spec/identity.test.ts`.
-- an SSE test confirming an already-open stream receives `event:
-  otter-room` on a resident report, using the same connect-before-mutate
-  pattern `spec/realtime.test.ts` uses.
-- manual, live: two Chrome profiles reporting Otter Room's state and
-  confirming each other's update arrives without reload, narrated from
-  `flyctl logs`.
+**Automated** (`spec/otter-room.test.ts`, `spec/otter-room-decay.test.ts` —
+32 tests, all passing alongside the existing suite): a persistence test (a
+report survives an independent later `GET`); `ifVersion`/409 conflict
+coverage identical in shape to `spec/concurrency.test.ts`; a `PATCH`
+rejection test for `occupancy: "unknown"`; a `PATCH` rejection test for
+`expectedEndAt` beyond 4 hours from now; a `PATCH` rejection test for
+`expectedEndAt` at or before `now` (the lower bound, not just the
+ceiling); a `PATCH` rejection test for `expectedEndAt` present alongside
+`occupancy: "empty"`; a no-inheritance test confirming a second `occupied`
+report that omits `expectedEndAt` returns `null`, not the first report's
+value; unit tests for the decay function's three branches (`empty` past
+15 min, `occupied` with no `expectedEndAt` past 4h, `occupied` with an
+`expectedEndAt` inside 4h that still passes before the 4h ceiling would)
+against constructed timestamps, following `spec/aa-room-decay.test.ts`'s
+own throwaway-database technique; identity/permission tests mirroring
+`spec/identity.test.ts`; an SSE test confirming an already-open stream
+receives `event: otter-room` on a resident report.
+
+**Manual, real browser** (Playwright + headless Chromium, not jsdom or
+static analysis — the same discipline AA Room's own Stage 2/4
+verification used): two separate sessions/contexts confirming a report in
+one reaches the other via SSE with no reload; Empty/Occupied toggle
+correctly enabling/disabling the optional minutes input; 409 and the
+unknown-is-not-reportable 400 behaving as designed; facility switching
+(Laundry → AA Room → Otter Room → Laundry → Otter Room, both directions)
+leaving every facility's own 3D canvas intact; zero console errors across
+all of the above; desktop and mobile layouts rendering correctly.
+
+**Two real 3D-rendering bugs were found this way, not by the automated
+suite, and both are recorded in `PROCESS.md` in full because they
+generalize beyond this one facility**: the occupied-only activity props
+(book, laptop, whiteboard marker strokes) were originally built as
+permanent fixtures and stayed visible after a report back to `empty`
+until a real screenshot caught it; and the window was originally mounted
+on the room's camera-near wall, which this app's "cutaway dollhouse"
+technique relies on backface culling to hide, so it rendered as an
+unanchored floating frame until a real screenshot of the *whole room* (not
+a tight crop) caught that too. Both are now correct: activity props track
+`occupancy` exactly like the figures do, and the window is mounted on the
+left wall (the one that's actually camera-facing), same side as the
+heater.

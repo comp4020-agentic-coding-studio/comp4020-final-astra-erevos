@@ -141,11 +141,48 @@ not a redesign. The dashboard markup, summary counts, and
 block filter and a callback so clicking a machine in 3D selects its
 block and highlights its card.
 
+## Otter Room: modeled from real house rules first, not guessed
+
+Unlike AA Room's v1, which guessed a model and corrected it later, Otter
+Room's actual house rules — the paper sign-up sheet, the unwritten
+four-hour norm, "don't distinguish activity," "don't record headcount" —
+were interrogated before any schema or code, landing as
+[`notes/adr/0004-otter-room-live-state.md`](notes/adr/0004-otter-room-live-state.md).
+Three commits followed in sequence (`fa57902` backend, `4a42172` panel,
+`8e903b3` 3D scene), each checked — `pnpm check`, then a real browser —
+before the next began.
+
+The ADR keeps two similar-looking decay numbers deliberately distinct:
+occupied's ceiling (`min(expectedEndAt, confirmedAt + 4h)`) transcribes a
+real Toad Hall norm, while empty's 15-minute decay is this app's own
+freshness judgement, not a pre-existing house rule — the code comments on
+each constant say so differently, not identically, since only one of them
+is a fact a future agent could actually go verify against real usage data.
+`expectedEndAt` is enforced as per-observation, never inherited — an
+`occupied` report that omits an estimate stores `NULL` even over a row
+holding a sharper one from an earlier report, covered by a dedicated test.
+Activity taxonomy, headcount, and a booking calendar were all declined by
+name, not merely left unbuilt — a study room with a literal sign-up sheet
+is exactly where "why not digitize it" creeps in unnoticed.
+
+The 3D stage repeated AA Room's own lesson that `pnpm check` cannot
+replace a real screenshot, twice: occupied-only activity props (a book, a
+laptop, whiteboard marker strokes) were first built as permanent fixtures
+and stayed visible after a report back to `empty` until a real browser
+check caught it — fixed by toggling them from the same `applyState()`
+call that already toggles the figures. Separately, the window was first
+mounted on the room's camera-near wall, the one this "cutaway dollhouse"
+technique relies on backface culling to hide — it rendered as a frame
+floating with no wall behind it, a bug two wrong-theory material fixes
+missed before a screenshot of the *whole room* (not a tight crop) showed
+the real cause and it was moved to the camera-facing wall instead.
+
 ## What's still ahead
 
 The broader freshness policy — `available`/`unknown` lifetimes, the
 provisional 12-hour window — stays open pending real cycle-time data,
 tracked in `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. Verified
 resident identity is a possible later upgrade, not a current gap.
-Presence and every non-laundry facility's implementation stay out of
-scope.
+Presence remains out of scope. Rabbit, Badger, Rat, and Weasel Rooms
+remain unimplemented and open for later Final Project scope decisions —
+not permanently out of scope, just not yet interrogated.
