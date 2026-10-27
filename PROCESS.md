@@ -285,6 +285,11 @@ first try — the first first-try pass this project had seen on a commit
 touching more than one decay spec file, which is itself the evidence the
 race, not luck, had been the problem.
 
+Weasel Room's own push (`40561533681`) went green on the first try too —
+a third straight first-try pass since the fix, now with the suite grown
+to 180 tests and a fourth decay spec file in the parallel mix.
+`database is locked` still hasn't reappeared.
+
 ## Weasel Room: the same model again, and two recurring lessons applied on sight
 
 Weasel Room's own ADR
@@ -348,6 +353,13 @@ own — arms resting down, nothing raised to playing height, no
 instrument-shaped prop — so the scene only ever says "occupied," never
 "playing guitar" or "playing keyboard," the same boundary ADR 0006's
 Decision 1 draws in the data model itself.
+
+Shipped to Fly on production version 38, CI green on the first try. A
+post-deploy smoke check against the live URL confirmed all five
+facilities' panel and 3D, both of Weasel Room's report shapes, two-session
+SSE sync driving the panel and 3D figures together, and a clean
+`flyctl logs` trace — no production-only product bug surfaced. See the
+ADR's own Verification section for the full detail.
 
 ## What's still ahead
 

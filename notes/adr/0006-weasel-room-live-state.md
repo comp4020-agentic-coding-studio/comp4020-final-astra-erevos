@@ -1,18 +1,16 @@
 # ADR 0006: Weasel Room's shared live state
 
-**Status**: Implemented and verified locally — production verification
-pending. This ADR fixed the state model, statuses, and decay rules for
-Toad Live's fifth facility before any schema, API, or UI work began, the
-same order ADR 0001/0002/0003/0004/0005 each used (see `PROCESS.md`'s
-"Rewritten each time the project's shape genuinely changed" convention).
-An earlier draft of this ADR left the `occupied` ceiling explicitly open
-pending confirmation of a real Weasel Room usage norm; that norm was
-confirmed (see Decision 2) before any implementation began, and every
-number below was decided, not provisional, from backend through 3D.
-Backend, practical panel, and 3D scene are all built and locally verified
-per the Verification section below; this status moves to "verified live"
-only after a post-deploy production smoke check, the same gate ADR
-0004/0005 used for Otter Room and Rabbit Room.
+**Status**: Implemented and verified live. This ADR fixed the state
+model, statuses, and decay rules for Toad Live's fifth facility before
+any schema, API, or UI work began, the same order ADR
+0001/0002/0003/0004/0005 each used (see `PROCESS.md`'s "Rewritten each
+time the project's shape genuinely changed" convention). An earlier draft
+of this ADR left the `occupied` ceiling explicitly open pending
+confirmation of a real Weasel Room usage norm; that norm was confirmed
+(see Decision 2) before any implementation began, and every number below
+was decided, not provisional, from backend through 3D. Backend, practical
+panel, and 3D scene are all built, locally verified, and now confirmed
+against the deployed Fly app per the Verification section below.
 
 **This ADR's conclusion looks identical to ADR 0004's (Otter Room) and
 ADR 0005's (Rabbit Room) — the same `occupancy`/`expectedEndAt` shape,
@@ -471,7 +469,38 @@ execution for Weasel Room:
   Weasel Room → Laundry) was confirmed to tear down and remount cleanly
   through the existing shared renderer, with zero console/page errors
   throughout.
-- **still outstanding:** a post-deploy production smoke check against the
-  live Fly URL, the same gate ADR 0004/0005 applied to Otter Room and
-  Rabbit Room before moving their status to "verified live." This ADR's
-  status does not move to "verified live" until that check actually runs.
+- **production, against the deployed Fly app (CI run `40561533681`,
+  commit `33d9155`, first-try green on both `check` and `deploy` — zero
+  reruns needed; see `PROCESS.md`'s SQLite test-isolation entry for why
+  this is itself meaningful evidence at this suite's current size).** Fly
+  production version 38. Laundry, AA Room, Otter Room, Rabbit Room, and
+  Weasel Room all confirmed panel + 3D working on the live URL. Weasel
+  Room specifically: an Empty report; an Occupied report with
+  `expectedEndAt` showing the correct remaining time; an Occupied report
+  with no `expectedEndAt` showing "remaining time unknown" exactly, not a
+  guessed number; an `occupied → empty → occupied` cycle showing figures
+  correctly appearing and disappearing with zero residue; the Unknown
+  scene correctly desaturated and dimmed with no figures; `expectedEndAt`
+  presence or absence confirmed not to change the 3D scene. Two
+  independent browser sessions against production: each session's initial
+  `GET` reflected the other's last report correctly; a report in one
+  reached the other via SSE with no reload in both directions, both the
+  practical panel and the 3D scene updating together. A forced stale
+  `ifVersion` produced the conflict path correctly; a direct `PATCH` of
+  `occupancy: "unknown"` was confirmed rejected `400`. Facility switching
+  (Laundry → AA Room → Otter Room → Rabbit Room → Weasel Room → Laundry)
+  round-tripped cleanly. A reduced-motion production check confirmed a
+  static Occupied pose, byte-identical across a 1.5-second gap.
+  `GET /readme/` returned 200. Both sessions showed zero genuine
+  console/page JS errors throughout. `flyctl logs` showed the two
+  sessions' distinct pseudonyms (`Toad-E4A7E5`, `Toad-BD8AF3`) correctly
+  attributed to their own reports, every accepted report logged
+  `result=ok`, a deliberately forced stale write logged `result=conflict`
+  against the correct version, and `version` incremented monotonically
+  throughout, with no error/exception/database-lock/crash lines anywhere
+  in the logs. (The production build minifies `scene.ts`'s export names,
+  so the verification script forcing the Unknown scene directly needed to
+  locate the renamed `applyWeaselRoomStateToScene` export in the bundled
+  module before it could call it — a verification-harness adaptation to
+  the build's own minification, not a product bug.) No new
+  production-only issue was found.
