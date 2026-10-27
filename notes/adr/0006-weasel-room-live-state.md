@@ -1,14 +1,18 @@
 # ADR 0006: Weasel Room's shared live state
 
-**Status**: Decided — not yet implemented. This ADR fixes the state
-model, statuses, and decay rules for Toad Live's fifth facility before
-any schema, API, or UI work begins, the same order ADR
-0001/0002/0003/0004/0005 each used (see `PROCESS.md`'s "Rewritten each
-time the project's shape genuinely changed" convention). An earlier
-draft of this ADR left the `occupied` ceiling explicitly open pending
-confirmation of a real Weasel Room usage norm; that norm has since been
-confirmed (see Decision 2) and every number below is now decided, not
-provisional.
+**Status**: Implemented and verified locally — production verification
+pending. This ADR fixed the state model, statuses, and decay rules for
+Toad Live's fifth facility before any schema, API, or UI work began, the
+same order ADR 0001/0002/0003/0004/0005 each used (see `PROCESS.md`'s
+"Rewritten each time the project's shape genuinely changed" convention).
+An earlier draft of this ADR left the `occupied` ceiling explicitly open
+pending confirmation of a real Weasel Room usage norm; that norm was
+confirmed (see Decision 2) before any implementation began, and every
+number below was decided, not provisional, from backend through 3D.
+Backend, practical panel, and 3D scene are all built and locally verified
+per the Verification section below; this status moves to "verified live"
+only after a post-deploy production smoke check, the same gate ADR
+0004/0005 used for Otter Room and Rabbit Room.
 
 **This ADR's conclusion looks identical to ADR 0004's (Otter Room) and
 ADR 0005's (Rabbit Room) — the same `occupancy`/`expectedEndAt` shape,
@@ -397,20 +401,77 @@ Room's single-activity v1 once made for a different reason — if that ever
 needs to change, it's a new decision with its own ADR, not a default this
 one quietly assumes.
 
-## Verification plan (not yet run — nothing is implemented)
+## Verification
 
-Mirroring ADR 0004/0005's own verification plans:
+Mirroring ADR 0004/0005's own verification plans, and now their actual
+execution for Weasel Room:
 
-- automated: a persistence test; `ifVersion`/409 conflict coverage; a
-  `PATCH` rejection test for `occupancy: "unknown"`; rejection tests for
-  `expectedEndAt` beyond 4 hours and at-or-before `now`; a rejection test
-  for `expectedEndAt` alongside `occupancy: "empty"`; a no-inheritance
-  test; unit tests for the decay function's three branches against
-  constructed timestamps, following
-  `spec/rabbit-room-decay.test.ts`'s throwaway-database technique;
-  identity/permission tests; an SSE test confirming an already-open
-  stream receives `event: weasel-room`.
-- manual, real browser: the same Playwright-based verification Otter
-  Room's and Rabbit Room's backend/panel/3D stages each used, including a
-  post-deploy production smoke check before this ADR's status moves to
-  "verified live."
+- **automated — 32 new tests, 180/180 total across the suite.**
+  `spec/weasel-room.test.ts` (18 tests): HTTP-level persistence; `GET`
+  shape confirming no `freshness`/`activities` field; occupied with and
+  without `expectedEndAt`; empty always clearing `expectedEndAt`;
+  per-observation non-inheritance; rejection of `expectedEndAt` alongside
+  `empty`; rejection beyond the 4-hour ceiling and at-or-before `now`;
+  rejection of `occupancy: "unknown"` as a reported value; rejection of a
+  non-integer `ifVersion`; a stale `ifVersion` returning `409` with
+  current canonical state and no mutation; `401` with no session; `400` on
+  a client-asserted actor field; SSE coverage confirming an already-open
+  stream receives `event: weasel-room` on both an accepted report and not
+  on a `409`/`400`. `spec/weasel-room-decay.test.ts` (14 tests):
+  store-level coverage of fresh-seed and idempotent-seed behavior; `empty`
+  staying put within 15 minutes and decaying past it; `occupied` with no
+  `expectedEndAt` staying put within 4 hours and decaying past it;
+  `occupied` with `expectedEndAt` decaying at the estimate, never at the
+  4-hour mark, when the estimate is earlier; the 4-hour ceiling capping an
+  estimate that would otherwise run longer; non-inheritance enforced at
+  the store layer independent of the API route; a decay transition
+  broadcasting exactly once and not broadcasting when nothing is stale; a
+  stale `ifVersion` write rejected with no mutation and no broadcast.
+  `weasel-room.ts`/`weasel-room-db.ts` followed the same pure-store-logic
+  plus production-wiring split `91167bd` established for AA/Otter/Rabbit
+  Room from the start (see `PROCESS.md`), so adding this fourth
+  `*-decay.test.ts` file did not reintroduce the SQLite-lock race that
+  split was built to eliminate — confirmed by running all four decay spec
+  files (`aa-room-decay`, `otter-room-decay`, `rabbit-room-decay`,
+  `weasel-room-decay`) together, in parallel, repeatedly, with zero
+  `database is locked` errors. Running the full suite also caught and
+  fixed, for a second time, a stale assumption in
+  `spec/aa-room.test.ts`'s SSE test helper — it had already been patched
+  once for Rabbit Room's arrival by enumerating sibling event names, which
+  broke the same way again once Weasel Room added a fifth; this time
+  fixed generically (skip anything that isn't `event: aa-room`, rather
+  than naming every sibling), so no future facility's arrival requires
+  editing this helper again — see `PROCESS.md`.
+- **manual, real browser — practical panel.** Two independent browser
+  sessions against the dev server confirmed a report in one reaches the
+  other within about a second with no reload, and that each session's
+  initial `GET` reflects the other's last report correctly; Empty/Occupied
+  toggling with and without a minutes estimate was exercised directly
+  through the form, including the minutes input's 240-minute (4h) cap; a
+  forced stale `ifVersion` produced the conflict path in the UI, not a
+  silent overwrite; a direct `PATCH` of `occupancy: "unknown"` was
+  confirmed rejected `400`, with no UI path ever offering it.
+- **manual, real browser — 3D scene, in two stages.** Stage 1 (static
+  Empty shell, no figures) was screenshotted and reviewed for room
+  structure alone before any occupancy layer was added — see
+  `PROCESS.md` for why this was done as its own stage, and for the two
+  real rendering bugs (whiteboard z-fighting, a bench visually swallowed
+  by the keyboard) a real screenshot caught and this stage fixed before
+  review. Stage 2 confirmed, via screenshots and a continuous `occupied →
+  empty → occupied → unknown` cycle: Empty shows the static room with no
+  figures or props; Occupied shows two neutral seated/standing figures
+  with zero residue carried over between cycles; Unknown shows the full
+  room structure desaturated and dimmed (confirmed numerically via pixel
+  sampling, not just by eye) with no figures; an `expectedEndAt` estimate
+  never changes the 3D state beyond plain `occupied` (confirmed
+  screenshots with and without an estimate render identically); reduced
+  motion was confirmed to render a single static occupied pose, byte-
+  identical across a 1.5-second gap, rather than losing state information.
+  Facility switching (Laundry → AA Room → Otter Room → Rabbit Room →
+  Weasel Room → Laundry) was confirmed to tear down and remount cleanly
+  through the existing shared renderer, with zero console/page errors
+  throughout.
+- **still outstanding:** a post-deploy production smoke check against the
+  live Fly URL, the same gate ADR 0004/0005 applied to Otter Room and
+  Rabbit Room before moving their status to "verified live." This ADR's
+  status does not move to "verified live" until that check actually runs.

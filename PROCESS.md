@@ -285,12 +285,76 @@ first try — the first first-try pass this project had seen on a commit
 touching more than one decay spec file, which is itself the evidence the
 race, not luck, had been the problem.
 
+## Weasel Room: the same model again, and two recurring lessons applied on sight
+
+Weasel Room's own ADR
+([`notes/adr/0006-weasel-room-live-state.md`](notes/adr/0006-weasel-room-live-state.md))
+landed on the same `occupancy` + optional `expectedEndAt`, 15-minute/
+4-hour shape Otter Room and Rabbit Room each already use — but, same
+discipline as both of those, re-derived independently from Weasel Room's
+own facts, not assumed because it's now the third room to look this way.
+Guitar and keyboard are two real, separately nameable uses — more
+clearly distinct than Otter Room's "alone or in a small group," on par
+with Rabbit Room's "study or shared meal" — but the room's own brief
+states plainly that a resident checking the app only cares whether
+someone's using the room and when they expect to finish, never which
+instrument. No headcount, no booking calendar, no instrument-status field
+were built, the same scope boundary every prior room drew for its own
+version of this temptation (Otter Room's heater, Rabbit Room's kitchen
+appliances, here the guitar and keyboard themselves). The 4-hour ceiling
+is a real community norm confirmed for Weasel Room specifically, not
+inherited from the other two rooms happening to share the number; the
+15-minute `empty` decay is this room's own freshness judgement, arrived
+at the same way Rabbit Room's was, not a transferred rule.
+
+Two things this milestone didn't have to re-learn, because they were
+already fixed infrastructure by the time it started:
+
+- **The backend never risked reintroducing the SQLite-lock race.**
+  `weasel-room.ts`/`weasel-room-db.ts` followed `91167bd`'s
+  pure-logic/production-wiring split from the first line written, not as
+  an afterthought — so becoming the *fourth* `*-decay.test.ts` file never
+  came close to repeating the sqlite-lock incident Rabbit Room's own
+  arrival caused. Verified directly: all four decay spec files run
+  together, in parallel, repeatedly, zero lock errors.
+- **The AA Room SSE helper broke the same way twice, and the second fix
+  was the right one.** `spec/aa-room.test.ts`'s stream helper had already
+  been patched once, for Rabbit Room, by adding `rabbit-room` to a list of
+  named sibling events it specifically recognized and skipped — which
+  broke again the moment Weasel Room introduced a fifth name, for the
+  exact same reason. The helper is now generic (skip any block whose
+  event name isn't `aa-room`, full stop), the same shape every sibling
+  facility's own stream helper already used — no future facility's
+  arrival should require touching this file again.
+
+The 3D stage kept the order Rabbit Room's own work established — a static
+Empty shell, reviewed for room structure before any occupancy layer
+exists — and it caught something on the first try because of that order:
+the whiteboard's face and frame, built from the same offset numbers
+Otter Room's and Rabbit Room's already-shipped whiteboards use, z-fought
+into a flickering diagonal tear. Checking showed both of those
+already-shipped rooms carry the same latent z-fighting, just never
+caught because nobody had screenshotted a whiteboard that close — this
+milestone fixed only Weasel Room's own copy, left Otter Room's and Rabbit
+Room's untouched, and is naming the cross-room fix here as a deliberate
+deferral to a later final-polish pass, not an oversight. A second,
+smaller bug — the keyboard's bench sitting close enough to read as
+swallowed by the keyboard's own silhouette — was caught the same way and
+fixed by widening the gap after a temporary red-highlight screenshot
+located it precisely.
+
+The occupied-state figures stay as deliberately neutral as Rabbit Room's
+own — arms resting down, nothing raised to playing height, no
+instrument-shaped prop — so the scene only ever says "occupied," never
+"playing guitar" or "playing keyboard," the same boundary ADR 0006's
+Decision 1 draws in the data model itself.
+
 ## What's still ahead
 
 The broader freshness policy — `available`/`unknown` lifetimes, the
 provisional 12-hour window — stays open pending real cycle-time data,
 tracked in `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. Verified
 resident identity is a possible later upgrade, not a current gap.
-Presence remains out of scope. Badger, Rat, and Weasel Rooms remain
-unimplemented and open for later Final Project scope decisions — not
-permanently out of scope, just not yet interrogated.
+Presence remains out of scope. Badger and Rat Rooms remain unimplemented
+and open for later Final Project scope decisions — not permanently out
+of scope, just not yet interrogated.
