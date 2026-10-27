@@ -1,14 +1,12 @@
 # ADR 0005: Rabbit Room's shared live state
 
-**Status**: Implemented and verified locally — production verification
-pending. This ADR fixed the state model, statuses, and decay rules for
-Toad Live's fourth facility before any schema, API, or UI work began, the
-same order ADR 0001/0002/0003/0004 each used (see `PROCESS.md`'s
-"Rewritten each time the project's shape genuinely changed" convention).
-Backend, practical panel, and 3D scene are all built and locally verified
-per the Verification section below; this status moves to "verified live"
-only after a post-deploy production smoke check, the same gate ADR 0004
-used for Otter Room.
+**Status**: Implemented and verified live. This ADR fixed the state
+model, statuses, and decay rules for Toad Live's fourth facility before
+any schema, API, or UI work began, the same order ADR 0001/0002/0003/0004
+each used (see `PROCESS.md`'s "Rewritten each time the project's shape
+genuinely changed" convention). Backend, practical panel, and 3D scene
+are all built, locally verified, and now confirmed against the deployed
+Fly app per the Verification section below.
 
 **This ADR's conclusion looks identical to ADR 0004's (Otter Room) — the
 same three-value `occupancy`, the same optional `expectedEndAt`, the same
@@ -389,7 +387,7 @@ if Rabbit Room's actual use ever turns out to need that distinction
 involved), that would be a new decision with its own ADR, not a default
 this one quietly assumes.
 
-## Verification (run; see status line for what's still outstanding)
+## Verification
 
 Mirroring ADR 0004's own verification plan, and now its actual execution
 for Rabbit Room:
@@ -442,7 +440,24 @@ for Rabbit Room:
   Rabbit Room → Laundry) was confirmed to tear down and remount cleanly
   through the existing shared renderer, with zero console/page errors
   throughout.
-- **still outstanding:** a post-deploy production smoke check against the
-  live Fly URL, the same gate ADR 0004 applied to Otter Room before moving
-  its status to "verified live." This ADR's status does not move to
-  "verified live" until that check actually runs.
+- **production, against the deployed Fly app (CI run `40219117879`,
+  commit `91167bd`, first-try green on both `check` and `deploy` — zero
+  reruns needed; see `PROCESS.md`'s SQLite test-isolation entry for what
+  made that first-try pass itself meaningful evidence).** Fly production
+  version 36. Laundry, AA Room, Otter Room, and Rabbit Room all confirmed
+  panel + 3D working on the live URL. Rabbit Room specifically: an Empty
+  report; an Occupied report with `expectedEndAt` showing the correct
+  remaining time; an Occupied report with no `expectedEndAt` showing
+  "remaining time unknown" exactly, not a guessed number. Two independent
+  browser sessions against production: each session's initial `GET`
+  reflected the other's last report correctly; a report in one reached
+  the other via SSE with no reload, both the practical panel and the 3D
+  figures following canonical state together with zero residue across an
+  occupied → empty → occupied cycle. Facility switching (Laundry → AA
+  Room → Otter Room → Rabbit Room → Laundry) round-tripped cleanly.
+  `GET /readme/` returned 200. Both sessions showed zero console/page JS
+  errors throughout. `flyctl logs` showed the two sessions' distinct
+  pseudonyms (`Toad-024055`, `Toad-987C35`) correctly attributed to their
+  own reports, every report logged `result=ok`, and `version` incrementing
+  monotonically with no conflicts. No new production-only issue was
+  found.

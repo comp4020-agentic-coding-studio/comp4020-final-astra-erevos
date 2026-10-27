@@ -243,6 +243,48 @@ never infers or decides which of the two real activities is happening; it
 expresses `occupied` and nothing more, the same boundary Decision 1 of
 ADR 0005 draws in the data model.
 
+`91167bd` shipped to Fly on the first try CI had seen all week (check and
+deploy both green, zero reruns) — production version 36. A post-deploy
+smoke check against the live URL confirmed all four facilities, both of
+Rabbit Room's report shapes (an `expectedEndAt` estimate shown correctly;
+no estimate showing "remaining time unknown," not a guess), and
+cross-session SSE sync driving the panel and the 3D figures together with
+zero residue — see the ADR's own Verification section for the full
+detail.
+
+### A known flake becomes a deterministic blocker: SQLite test isolation
+
+Adding Rabbit Room's backend meant a third `*-decay.test.ts` file, and
+that pushed an old, merely-annoying flake into an actual release blocker:
+the push carrying ADR 0005's status update failed CI seven times in a
+row, every time with the identical `database is locked`
+(`ERR_SQLITE_ERROR errcode 5`), landing on a different one of the three
+decay spec files each time. Seven consecutive identical failures on a
+docs-only commit ruled out a one-off fluke before any code was touched.
+
+The cause was never a Rabbit Room product bug: `aa-room.ts`/
+`otter-room.ts`/`rabbit-room.ts` each imported `db.ts` and self-seeded at
+module load, so a decay spec's static `import` — written only to reach
+the pure decay logic and a throwaway in-memory store — transitively
+opened a second real connection to the same on-disk file the CI
+container's own running app already held, racing it for the same lock.
+Two such files made this an occasional flake; three made it close to
+certain.
+
+The fix deliberately wasn't a retry, a busy-timeout, or forcing Vitest
+serial — any of those would have masked the race rather than removed it.
+`91167bd` split each room module in two: the facility module now takes a
+required `store`/`now` with no default and never imports `db.ts`, and a
+new sibling `*-db.ts` module is the only place that wires it to the
+app's real connection and performs the self-seed. A decay spec's import
+of the facility module now touches no real database at all. Verified
+before shipping: `pnpm check` fifteen times straight at 148/148; the
+three decay specs run together, in parallel, fifteen more times with zero
+lock errors; and the next real CI run (`40219117879`) went green on the
+first try — the first first-try pass this project had seen on a commit
+touching more than one decay spec file, which is itself the evidence the
+race, not luck, had been the problem.
+
 ## What's still ahead
 
 The broader freshness policy — `available`/`unknown` lifetimes, the
