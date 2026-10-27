@@ -360,12 +360,21 @@ class LiveStream {
   }
 
   // Reads blocks until one is an `aa-room` event matching `predicate` (or
-  // the deadline passes). A `machine`, `otter-room`, or `rabbit-room`
-  // event seen along the way — this stream is shared with every other
-  // spec file running in parallel, including spec/otter-room.test.ts
-  // (ADR 0004) and spec/rabbit-room.test.ts (ADR 0005) — is asserted to
-  // actually be that kind of payload (never something that merely looks
-  // like one), then skipped.
+  // the deadline passes). Any other named event seen along the way — this
+  // stream is shared with every other spec file running in parallel
+  // (spec/otter-room.test.ts, spec/rabbit-room.test.ts,
+  // spec/weasel-room.test.ts, and whatever facility comes after) — is
+  // skipped without inspection. This used to enumerate each sibling event
+  // name explicitly (machine/otter-room/rabbit-room/weasel-room) and
+  // assert something about its shape before skipping it, which meant this
+  // helper broke — or had to be hand-edited — every time a new facility's
+  // event name joined the shared stream (first for Rabbit Room, again for
+  // Weasel Room; see PROCESS.md). Mirrors
+  // spec/otter-room.test.ts's/spec/rabbit-room.test.ts's/
+  // spec/weasel-room.test.ts's own `nextOtterRoomEvent()`-shaped helpers,
+  // which already only ever check `parsed.name !== "<own event>"` and
+  // never enumerate siblings — generalizing this one the same way means
+  // no future facility's arrival requires editing this file again.
   async nextAaRoomEvent(
     timeoutMs: number,
     predicate: (event: AaRoomEvent) => boolean = () => true,
@@ -376,20 +385,7 @@ class LiveStream {
       if (block === null) return null;
       const parsed = this.parseEvent(block);
       if (!parsed) continue; // a comment
-      if (parsed.name === "machine") {
-        // Confirm this is genuinely a machine payload (has an `id`), not
-        // an aa-room payload mislabeled — if the wire contract ever broke
-        // this way, this assertion is what would catch it.
-        expect(parsed.data).toHaveProperty("id");
-        continue;
-      }
-      if (parsed.name === "otter-room" || parsed.name === "rabbit-room") {
-        // Confirm this is genuinely an otter-room/rabbit-room payload (no
-        // activities), not an aa-room payload mislabeled.
-        expect(parsed.data).not.toHaveProperty("activities");
-        continue;
-      }
-      expect(parsed.name).toBe("aa-room");
+      if (parsed.name !== "aa-room") continue;
       const event = parsed.data as AaRoomEvent;
       // An aa-room event must never carry a machine-shaped `id` field —
       // confirms the event types stay structurally distinct on the wire,

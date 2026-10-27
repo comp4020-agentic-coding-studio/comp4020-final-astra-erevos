@@ -198,3 +198,44 @@ export interface RabbitRoomState {
   // No freshness field, same reasoning as OtterRoomState — ADR 0005,
   // Decision 4.
 }
+
+// Weasel Room — Toad Live's fifth facility. See
+// notes/adr/0006-weasel-room-live-state.md: the same occupancy +
+// optional-expectedEndAt shape as Otter Room and Rabbit Room,
+// independently re-derived from Weasel Room's own facts (guitar and
+// keyboard are real, distinct uses, but this room's own brief states
+// directly that neither is decision-relevant to a resident checking the
+// app — ADR 0006, Decision 1/3), not copied because the three rooms
+// happen to look alike. No activities, no headcount, no
+// instrument/heater-appliance status.
+export type WeaselRoomOccupancy = "empty" | "occupied" | "unknown";
+export const VALID_WEASEL_ROOM_OCCUPANCIES: readonly WeaselRoomOccupancy[] = [
+  "empty",
+  "occupied",
+  "unknown",
+];
+
+// "unknown" is never a value a resident's PATCH may send — see ADR 0006,
+// Decision 1, same rule as every other facility's occupancy/status.
+export type ReportableWeaselRoomOccupancy = Extract<WeaselRoomOccupancy, "empty" | "occupied">;
+export const VALID_REPORTABLE_WEASEL_ROOM_OCCUPANCIES: readonly ReportableWeaselRoomOccupancy[] = [
+  "empty",
+  "occupied",
+];
+
+export interface WeaselRoomState {
+  occupancy: WeaselRoomOccupancy;
+  // Only ever non-null alongside occupancy "occupied" — a resident's own
+  // carried-over estimate from the door's sign-up sheet, never fabricated
+  // from an assumed session length (CLAUDE.md). Validated on write to
+  // satisfy now < expectedEndAt <= now + 4h (ADR 0006, Decision 2), and
+  // never inherited from a prior report — every PATCH fully replaces this
+  // field, never merges into whatever the row previously held.
+  expectedEndAt: number | null;
+  confirmedAt: number | null;
+  // Server-owned, starts at 1 — same contract as every other facility's
+  // version field.
+  version: number;
+  // No freshness field, same reasoning as OtterRoomState/RabbitRoomState —
+  // ADR 0006, Decision 4.
+}

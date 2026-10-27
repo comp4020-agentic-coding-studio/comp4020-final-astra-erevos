@@ -140,3 +140,32 @@ CREATE TABLE IF NOT EXISTS rabbit_room (
   reporter_id     TEXT,
   version         INTEGER NOT NULL DEFAULT 1
 );
+
+-- Weasel Room: Toad Live's fifth facility. See
+-- notes/adr/0006-weasel-room-live-state.md. A single row, same shape as
+-- `otter_room`/`rabbit_room` — not because this table was copied for
+-- convenience, but because the ADR independently re-derived the same
+-- occupancy+optional-expected_end_at model from Weasel Room's own facts
+-- (guitar and keyboard are real, distinct uses, but neither
+-- decision-relevant to a resident checking the app, stated directly in
+-- this room's own brief — ADR 0006, Decision 1/3). No `activities`
+-- column, no instrument/heater-appliance status column: the room's
+-- guitar/keyboard/heater are named furniture, never something this app
+-- reports the condition of. reporter_id references sessions.id, same
+-- meaning as every other facility's reporter_id (ADR 0002) — never a
+-- client-asserted value.
+--
+-- expected_end_at is a resident's own optional carried-over estimate from
+-- the door's sign-up sheet — never fabricated by the app (CLAUDE.md) —
+-- capped on write at confirmed_at + 4 hours (ADR 0006, Decision 2): a
+-- real Toad Hall community norm confirmed for Weasel Room specifically,
+-- not inferred from Otter Room's or Rabbit Room's own figures.
+CREATE TABLE IF NOT EXISTS weasel_room (
+  id              TEXT PRIMARY KEY DEFAULT 'weasel-room',
+  occupancy       TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
+  expected_end_at INTEGER,
+  confirmed_at    INTEGER,
+  reporter_id     TEXT,
+  version         INTEGER NOT NULL DEFAULT 1
+);

@@ -162,6 +162,35 @@ export function formatRabbitRoomReportRejected(params: { actor: string; reason: 
   ]);
 }
 
+// Weasel Room's own report-outcome lines — same shape as the Rabbit Room
+// pair above, naming the facility ("weasel-room"). See
+// notes/adr/0006-weasel-room-live-state.md.
+export function formatWeaselRoomReportOutcome(params: {
+  actor: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "weasel-room"],
+    ["action", "report"],
+    ["occupancy", params.occupancy],
+    ["result", params.result],
+    ["version", params.version],
+  ]);
+}
+
+export function formatWeaselRoomReportRejected(params: { actor: string; reason: string }): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "weasel-room"],
+    ["action", "report"],
+    ["result", "rejected"],
+    ["reason", params.reason],
+  ]);
+}
+
 export function logSessionCreated(pseudonym: string): void {
   console.log(formatSessionCreated(pseudonym));
 }
@@ -217,4 +246,17 @@ export function logRabbitRoomReportOutcome(params: {
 
 export function logRabbitRoomReportRejected(params: { actor: string; reason: string }): void {
   console.log(formatRabbitRoomReportRejected(params));
+}
+
+export function logWeaselRoomReportOutcome(params: {
+  actor: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): void {
+  console.log(formatWeaselRoomReportOutcome(params));
+}
+
+export function logWeaselRoomReportRejected(params: { actor: string; reason: string }): void {
+  console.log(formatWeaselRoomReportRejected(params));
 }
