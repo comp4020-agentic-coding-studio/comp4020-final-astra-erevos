@@ -1510,23 +1510,28 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             </section>
           </div>
 
-          {/* Weasel Room's left pane — deliberately a plain placeholder at
-              this stage, same "placeholder stage, then a real scene" order
-              every other facility has gone through (see e.g. Rabbit Room's
-              own panel-stage commit). The real 3D diorama (the square room,
-              door/window/whiteboard, guitar corner, keyboard-and-bench,
-              heater) is later work, not decided or built here. Reuses
-              .aa-room-placeholder — generic styling with no AA-Room-
-              specific behaviour, and currently otherwise unused dead CSS
-              (AA Room has its own real 3D scene now) — rather than adding
-              a near-identical rule. No renderer-host.ts registration at
-              all: the generic facility-tab script only toggles [hidden] on
-              .facility-view[data-facility], and facility-switch.ts's
-              selectHallFacility() already no-ops safely for any key with
-              nothing registered. */}
+          {/* Weasel Room's left pane — a real 3D diorama (square room,
+              door opening, north-wall window, west-wall whiteboard, a
+              guitar in the back-left corner, a keyboard + bench on the
+              east side, two chairs, a southwest heater, plus decorative
+              occupied-only figures — see src/lib/hall-view/weasel-room.ts
+              for the full wall-visibility reasoning and ADR 0006's
+              no-activity-props boundary), mounted onto the ONE shared
+              renderer (src/lib/hall-view/renderer-host.ts), never a second
+              WebGLRenderer. aria-hidden for the same reason every other
+              facility's hall-view is: every fact it shows is already
+              stated as accessible text in the Weasel Room panel below.
+              Hidden by default; the facility-tab script shows it only
+              when Weasel Room is selected. data-weasel-room is the same
+              initial-state-from-this-page-load payload the Weasel Room
+              panel's own script already reads from the info panel
+              below — read once here too so the 3D mount has the real
+              starting state without a second fetch. See
+              notes/adr/0006-weasel-room-live-state.md. */}
           <div class="facility-view" data-facility="weasel-room" hidden>
-            <section class="hall-view aa-room-placeholder" aria-hidden="true">
-              <p>Weasel Room visual coming next.</p>
+            <section class="hall-view" aria-hidden="true" data-weasel-room={JSON.stringify(weaselRoom)}>
+              <div class="hall-view-canvas" id="weasel-room-canvas"></div>
+              <p class="hall-view-caption">Toad Hall — Weasel Room, live</p>
             </section>
           </div>
         </div>
@@ -2289,6 +2294,48 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             // on its own either way.
             rabbitRoomContainer.remove();
             rabbitRoomSection.querySelector(".hall-view-caption")?.remove();
+          }
+        });
+      }
+    </script>
+
+    {/* Weasel Room's own 3D mount, same lazy-build-on-first-select shape as
+        every other facility's mount script. See
+        notes/adr/0006-weasel-room-live-state.md and
+        src/lib/hall-view/weasel-room.ts. */}
+    <script>
+      import { mountWeaselRoom } from "../lib/hall-view/scene.ts";
+      import { activateFacility } from "../lib/hall-view/renderer-host.ts";
+      import { onFacilitySelected } from "../lib/hall-view/facility-switch.ts";
+
+      interface WeaselRoomSceneState {
+        occupancy: "empty" | "occupied" | "unknown";
+        expectedEndAt: number | null;
+        confirmedAt: number | null;
+        version: number;
+      }
+
+      const weaselRoomContainer = document.getElementById("weasel-room-canvas");
+      const weaselRoomSection = weaselRoomContainer?.closest<HTMLElement>(".hall-view") ?? null;
+
+      if (weaselRoomContainer && weaselRoomSection && weaselRoomSection.dataset.weaselRoom) {
+        let built = false;
+        onFacilitySelected("weasel-room", () => {
+          if (built) {
+            activateFacility("weasel-room", weaselRoomContainer);
+            return;
+          }
+          built = true;
+          try {
+            const initial = JSON.parse(weaselRoomSection.dataset.weaselRoom!) as WeaselRoomSceneState;
+            mountWeaselRoom(weaselRoomContainer, initial);
+          } catch {
+            // Same fallback as every other facility's own mount — WebGL
+            // unavailable, or anything else went wrong building the
+            // scene. The Weasel Room panel below is a complete experience
+            // on its own either way.
+            weaselRoomContainer.remove();
+            weaselRoomSection.querySelector(".hall-view-caption")?.remove();
           }
         });
       }
@@ -3206,12 +3253,16 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         see notes/adr/0006-weasel-room-live-state.md), so this is its own
         small "render canonical state into these DOM nodes" function.
         Wired into the page's one shared SSE connection
-        (src/lib/live-stream.ts) from the start. No 3D hook yet — the left
-        pane is a plain placeholder at this stage (see the markup above),
-        so there is nothing equivalent to applyRabbitRoomStateToScene()
-        to call here. */}
+        (src/lib/live-stream.ts) from the start. Also feeds the 3D scene
+        via applyWeaselRoomStateToScene() (src/lib/hall-view/scene.ts),
+        the exact same cross-script-block sharing every other facility's
+        own scripts already rely on for their own scene hooks — a safe
+        no-op via scene.ts's mountedWeaselRoomScenes Set when nothing has
+        mounted yet (e.g. a resident whose current tab is Laundry and has
+        never switched to Weasel Room). */}
     <script>
       import { onWeaselRoomEvent, onOpen } from "../lib/live-stream.ts";
+      import { applyWeaselRoomStateToScene } from "../lib/hall-view/scene.ts";
 
       type WeaselRoomOccupancy = "empty" | "occupied" | "unknown";
       interface WeaselRoomState {
@@ -3268,6 +3319,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // applyRabbitRoomUpdate(): one canonical update path, never a second
       // client-side state model to drift from the server's.
       function applyWeaselRoomUpdate(room: WeaselRoomState): void {
+        applyWeaselRoomStateToScene(room);
+
         if (!statusEl || !statusIconEl || !statusLabelEl || !remainingEl || !confirmedEl || !form) {
           return;
         }
