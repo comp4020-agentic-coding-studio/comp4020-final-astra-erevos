@@ -153,22 +153,40 @@ export function buildOtterRoom(): OtterRoomHandle {
   // table (FINAL_PROJECT_SOURCE_OF_TRUTH.md §3). The frame/blank face are
   // permanent fixtures; the marker strokes are an occupied-only activity
   // prop (see applyState() below) — a clean board when nobody's using the
-  // room, same reasoning as the table's book/laptop. ---
+  // room, same reasoning as the table's book/laptop.
+  //
+  // The face plane is offset a full WHITEBOARD_FACE_CLEARANCE past the
+  // frame's own front face, not a near-touching 0.015 fraction of the
+  // frame's depth — the same fix weasel-room.ts's own whiteboard already
+  // uses. The original 0.02-frame/0.035-face offsets here put the frame's
+  // front face and the face plane exactly coplanar (both at
+  // -ROOM_DEPTH/2 + 0.035): two coplanar triangles at the exact same depth
+  // z-fight, rendering as an unstable, flickering diagonal tear — caught
+  // by a real screenshot of Weasel Room's own near-identical geometry,
+  // then confirmed present here too by inspection (not a new bug, a
+  // latent one this fix now closes). Visual-only: no geometry layout,
+  // camera, lighting, or occupancy-state change. ---
+  const WHITEBOARD_FRAME_DEPTH = 0.03;
+  const WHITEBOARD_FACE_CLEARANCE = 0.02; // clearly past the frame's own front face, not a near-coplanar fraction of it
   const whiteboardFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5c47, roughness: 0.6 });
-  const whiteboardFrame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.66, 0.03), whiteboardFrameMaterial);
+  const whiteboardFrame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.66, WHITEBOARD_FRAME_DEPTH), whiteboardFrameMaterial);
   whiteboardFrame.position.set(-0.9, 1.3, -ROOM_DEPTH / 2 + 0.02);
   group.add(whiteboardFrame);
   const whiteboardFaceMaterial = new THREE.MeshStandardMaterial({ color: 0xfffbf1, roughness: 0.3 });
   const whiteboardFace = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.58), whiteboardFaceMaterial);
-  whiteboardFace.position.set(-0.9, 1.3, -ROOM_DEPTH / 2 + 0.035);
+  whiteboardFace.position.set(-0.9, 1.3, -ROOM_DEPTH / 2 + 0.02 + WHITEBOARD_FRAME_DEPTH / 2 + WHITEBOARD_FACE_CLEARANCE);
   group.add(whiteboardFace);
+  // Marker strokes sit just in front of the face plane, same relative
+  // offset as before the clearance fix above — shifted forward by the
+  // same amount the face itself moved, so they stay just in front of the
+  // (now non-coplanar) face rather than ending up buried behind it.
   const markerMaterial = new THREE.MeshStandardMaterial({ color: 0x3987e5, roughness: 0.5 });
   const markerStroke1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.01), markerMaterial);
-  markerStroke1.position.set(-0.95, 1.42, -ROOM_DEPTH / 2 + 0.04);
+  markerStroke1.position.set(-0.95, 1.42, -ROOM_DEPTH / 2 + 0.02 + WHITEBOARD_FRAME_DEPTH / 2 + WHITEBOARD_FACE_CLEARANCE + 0.005);
   group.add(markerStroke1);
   const markerStroke2 = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.02, 0.01), markerMaterial);
   markerStroke2.rotation.z = -0.1;
-  markerStroke2.position.set(-1.0, 1.32, -ROOM_DEPTH / 2 + 0.04);
+  markerStroke2.position.set(-1.0, 1.32, -ROOM_DEPTH / 2 + 0.02 + WHITEBOARD_FRAME_DEPTH / 2 + WHITEBOARD_FACE_CLEARANCE + 0.005);
   group.add(markerStroke2);
 
   // Occupied-only activity props: visible signs someone is actively using

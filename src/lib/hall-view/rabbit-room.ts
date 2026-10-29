@@ -206,16 +206,30 @@ export function buildRabbitRoom(): RabbitRoomHandle {
   // --- Whiteboard and two windows, LEFT wall only — the one visible side
   // wall (see the file's own top note). Spread along the wall's length,
   // front to back, with clear gaps between them and clear of both the
-  // table and the kitchen zone at the far end. ---
+  // table and the kitchen zone at the far end.
+  //
+  // The face plane is offset a full WHITEBOARD_FACE_CLEARANCE past the
+  // frame's own front face, not a near-touching 0.015 fraction of the
+  // frame's depth — the same fix weasel-room.ts's own whiteboard already
+  // uses. The original 0.02-frame/0.035-face offsets here put the frame's
+  // front face and the face plane exactly coplanar (both at
+  // -ROOM_WIDTH/2 + 0.035): two coplanar triangles at the exact same depth
+  // z-fight, rendering as an unstable, flickering diagonal tear — caught
+  // by a real screenshot of Weasel Room's own near-identical geometry,
+  // then confirmed present here too by inspection (not a new bug, a
+  // latent one this fix now closes). Visual-only: no geometry layout,
+  // camera, lighting, or occupancy-state change. ---
+  const WHITEBOARD_FRAME_DEPTH = 0.03;
+  const WHITEBOARD_FACE_CLEARANCE = 0.02; // clearly past the frame's own front face, not a near-coplanar fraction of it
   const whiteboardFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5c47, roughness: 0.6 });
-  const whiteboardFrame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.66, 0.03), whiteboardFrameMaterial);
+  const whiteboardFrame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.66, WHITEBOARD_FRAME_DEPTH), whiteboardFrameMaterial);
   whiteboardFrame.rotation.y = Math.PI / 2;
   whiteboardFrame.position.set(-ROOM_WIDTH / 2 + 0.02, 1.3, 2.2);
   group.add(whiteboardFrame);
   const whiteboardFaceMaterial = new THREE.MeshStandardMaterial({ color: 0xfffbf1, roughness: 0.3 });
   const whiteboardFace = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.58), whiteboardFaceMaterial);
   whiteboardFace.rotation.y = Math.PI / 2;
-  whiteboardFace.position.set(-ROOM_WIDTH / 2 + 0.035, 1.3, 2.2);
+  whiteboardFace.position.set(-ROOM_WIDTH / 2 + 0.02 + WHITEBOARD_FRAME_DEPTH / 2 + WHITEBOARD_FACE_CLEARANCE, 1.3, 2.2);
   group.add(whiteboardFace);
 
   // Window builder — identical technique to otter-room.ts's own (open
