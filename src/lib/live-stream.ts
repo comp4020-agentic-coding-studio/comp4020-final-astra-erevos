@@ -1,4 +1,4 @@
-import type { AaRoomState, BadgerRoomState, Machine, OtterRoomState, RabbitRoomState, WeaselRoomState } from "./types.ts";
+import type { AaRoomState, BadgerRoomState, Machine, OtterRoomState, RabbitRoomState, RatRoomSeatState, WeaselRoomState } from "./types.ts";
 
 // Stage 3 (AA Room) — the ONE SSE connection for the whole page, shared
 // between index.astro's Laundry dashboard script and its AA Room panel
@@ -20,14 +20,19 @@ import type { AaRoomState, BadgerRoomState, Machine, OtterRoomState, RabbitRoomS
 // ADR 0004 (Otter Room) added a third listener set/event the same way
 // Stage 3 added the second; ADR 0005 (Rabbit Room) added a fourth, same
 // shape; ADR 0006 (Weasel Room) added a fifth; ADR 0007 (Badger Room)
-// adds a sixth — one more named SSE event over the same connection, no
-// new EventSource.
+// added a sixth; ADR 0008 (Rat Room) adds a seventh — one more named SSE
+// event over the same connection, no new EventSource. Rat Room's own
+// listener carries one SEAT's state per call, not a whole-room snapshot
+// (ADR 0008, Decision 6) — the panel script tells which of the ten seats
+// changed from the payload's own `seat` field, the same way Laundry's
+// own onMachineEvent() listener already carries one machine at a time.
 type MachineListener = (machine: Machine) => void;
 type AaRoomListener = (room: AaRoomState) => void;
 type OtterRoomListener = (room: OtterRoomState) => void;
 type RabbitRoomListener = (room: RabbitRoomState) => void;
 type WeaselRoomListener = (room: WeaselRoomState) => void;
 type BadgerRoomListener = (room: BadgerRoomState) => void;
+type RatRoomListener = (seat: RatRoomSeatState) => void;
 type OpenListener = () => void;
 
 const machineListeners = new Set<MachineListener>();
@@ -36,6 +41,7 @@ const otterRoomListeners = new Set<OtterRoomListener>();
 const rabbitRoomListeners = new Set<RabbitRoomListener>();
 const weaselRoomListeners = new Set<WeaselRoomListener>();
 const badgerRoomListeners = new Set<BadgerRoomListener>();
+const ratRoomListeners = new Set<RatRoomListener>();
 const openListeners = new Set<OpenListener>();
 
 const events = new EventSource("/api/stream");
@@ -70,6 +76,11 @@ events.addEventListener("badger-room", (event) => {
   for (const listener of badgerRoomListeners) listener(room);
 });
 
+events.addEventListener("rat-room", (event) => {
+  const seat = JSON.parse((event as MessageEvent<string>).data) as RatRoomSeatState;
+  for (const listener of ratRoomListeners) listener(seat);
+});
+
 events.addEventListener("open", () => {
   for (const listener of openListeners) listener();
 });
@@ -96,6 +107,10 @@ export function onWeaselRoomEvent(fn: WeaselRoomListener): void {
 
 export function onBadgerRoomEvent(fn: BadgerRoomListener): void {
   badgerRoomListeners.add(fn);
+}
+
+export function onRatRoomEvent(fn: RatRoomListener): void {
+  ratRoomListeners.add(fn);
 }
 
 // Fires once per connect/reconnect — each registered listener is

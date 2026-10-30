@@ -5,13 +5,16 @@ import { getOtterRoom, OTTER_ROOM_MAX_OCCUPIED_MS } from "../lib/otter-room-db.t
 import { getRabbitRoom, RABBIT_ROOM_MAX_OCCUPIED_MS } from "../lib/rabbit-room-db.ts";
 import { getWeaselRoom, WEASEL_ROOM_MAX_OCCUPIED_MS } from "../lib/weasel-room-db.ts";
 import { getBadgerRoom, BADGER_ROOM_MAX_OCCUPIED_MS } from "../lib/badger-room-db.ts";
-import type {
-  AaRoomActivity,
-  AaRoomOccupancy,
-  OtterRoomOccupancy,
-  RabbitRoomOccupancy,
-  WeaselRoomOccupancy,
-  BadgerRoomOccupancy,
+import { listRatRoomSeats, RAT_ROOM_SEAT_MAX_OCCUPIED_MS } from "../lib/rat-room-db.ts";
+import {
+  summarizeRatRoomSeats,
+  type AaRoomActivity,
+  type AaRoomOccupancy,
+  type OtterRoomOccupancy,
+  type RabbitRoomOccupancy,
+  type WeaselRoomOccupancy,
+  type BadgerRoomOccupancy,
+  type RatRoomSeatOccupancy,
 } from "../lib/types.ts";
 import {
   COOKIE_NAME,
@@ -86,6 +89,20 @@ const weaselRoom = getWeaselRoom();
 // placeholder left pane below. See
 // notes/adr/0007-badger-room-live-state.md.
 const badgerRoom = getBadgerRoom();
+
+// Rat Room — Toad Live's seventh facility. UNLIKE every room since AA
+// Room, this is TEN independently-reportable seat resources (A-J), not
+// one canonical row — see notes/adr/0008-rat-room-live-state.md,
+// Decision 1: the decision-relevant question here is "how many seats
+// are free," not "is anyone in the room," so this facility is Laundry's
+// structural sibling, not Otter/Rabbit/Weasel/Badger Room's. No
+// room-level occupancy is ever stored — ratRoomSummary below is purely
+// derived from these same ten seats, recomputed fresh on every page
+// load and, client-side, on every SSE update (ADR 0008, Decision 4). No
+// 3D scene yet — see the placeholder left pane below.
+const ratRoomSeats = listRatRoomSeats();
+const ratRoomSummary = summarizeRatRoomSeats(ratRoomSeats);
+const ratRoomSummaryParts = ratRoomSummaryPartsFor(ratRoomSummary);
 
 // Stage 1 of the Live Hall View (see PROCESS.md): initialized from this
 // page load's real machine state. Deliberately no SSE wiring yet at
@@ -289,6 +306,56 @@ function badgerRoomRemainingLabel(expectedEndAt: number | null): { text: string;
   return minutes > 0
     ? { text: `${minutes} min left`, known: true }
     : { text: "should be finishing", known: true };
+}
+
+// Rat Room's own per-SEAT status palette — same occupancy-only values
+// every prior room uses (ADR 0008, Decision 2), applied per seat rather
+// than once for the whole room. No out-of-order: nothing in this room's
+// own brief raises broken computers as a confirmed concern.
+const RAT_ROOM_SEAT_STATUS_META: Record<RatRoomSeatOccupancy, { label: string; icon: string; class: string }> = {
+  empty: { label: "Empty", icon: "✓", class: "status-available" },
+  occupied: { label: "Occupied", icon: "●", class: "status-in-use" },
+  unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+};
+
+// Mirrors badgerRoomConfirmedLabel()/weaselRoomConfirmedLabel() exactly —
+// a separate copy, not a shared function, same reasoning as every other
+// facility's own copy. Applied per seat, not once for the room.
+function ratRoomSeatConfirmedLabel(confirmedAt: number | null): string {
+  if (confirmedAt === null) return "never reported";
+  const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+  if (minutes < 1) return "confirmed just now";
+  return `confirmed ${minutes} min ago`;
+}
+
+// Mirrors badgerRoomRemainingLabel() — a seat's own expectedEndAt is the
+// same kind of optional, never-fabricated signal (ADR 0008, Decision 2),
+// except here it's a resident's own estimate of their own session length,
+// never carried over from a sign-up sheet (Rat Room has none).
+function ratRoomSeatRemainingLabel(expectedEndAt: number | null): { text: string; known: boolean } {
+  if (expectedEndAt === null) return { text: "remaining time unknown", known: false };
+  const minutes = Math.round((expectedEndAt - Date.now()) / 60_000);
+  return minutes > 0
+    ? { text: `${minutes} min left`, known: true }
+    : { text: "should be finishing", known: true };
+}
+
+// The one headline a resident actually wants — "how many seats can I
+// use right now" — is the count of seats CONFIRMED empty, and only that
+// (ADR 0008, Decision 4). unknownCount is never folded into it, in
+// either direction: an unconfirmed seat is never presented as free, and
+// never presented as occupied either.
+//
+// Returned as two separate PHRASES, not one string, purely for
+// presentation: the markup renders each phrase in its own
+// white-space: nowrap span so a narrow viewport wraps between the two
+// semantic chunks ("6 seats confirmed free" / "2 unknown"), never in the
+// middle of either one. The underlying fact — confirmed-free count, and
+// unknown count shown alongside but never folded into it — is unchanged.
+function ratRoomSummaryPartsFor(summary: { emptyCount: number; unknownCount: number }): { free: string; unknown: string | null } {
+  const free = `${summary.emptyCount} seat${summary.emptyCount === 1 ? "" : "s"} confirmed free`;
+  const unknown = summary.unknownCount > 0 ? `${summary.unknownCount} unknown` : null;
+  return { free, unknown };
 }
 
 function confirmedLabel(confirmedAt: number | null): string {
@@ -1041,8 +1108,11 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
          now that Badger Room has its own real 3D diorama (Stage 1 static
          shell — see notes/adr/0007-badger-room-live-state.md), it no
          longer does, the same way Otter Room's own commit removed it from
-         this selector once ITS placeholder stage ended. */
-      .aa-room-placeholder {
+         this selector once ITS placeholder stage ended. Rat Room reuses
+         it now, for the same practical-panel-first placeholder stage —
+         see notes/adr/0008-rat-room-live-state.md. */
+      .aa-room-placeholder,
+      .rat-room-placeholder {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1254,6 +1324,129 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       .aa-room-toggle input:disabled:checked + span {
         opacity: 0.75;
       }
+
+      /* --- Rat Room: TEN independent seat resources (A-J), not one
+         occupancy row — see notes/adr/0008-rat-room-live-state.md,
+         Decision 1. Deliberately its own grid/card language, not a reuse
+         of .machines/.machine: a seat is a resource a resident picks
+         from (so it reads like Laundry's own multi-resource layout), but
+         it has no machine type/location, no out-of-order, no startedAt,
+         and no appliance wording — reusing .machine directly would carry
+         washer/dryer semantics this facility never has. Shares
+         .badge/.status-*/.remaining/.confirmed/.aa-room-toggle*/
+         form.report-form exactly like every other facility's own panel
+         does — only the card/grid shell below is new. --- */
+      .rat-room-summary {
+        display: block;
+        margin: 0 0 1.25rem;
+        max-width: none;
+      }
+      /* The one headline a resident actually wants, as a flex row of two
+         whole PHRASES (see ratRoomSummaryPartsFor()'s own note) rather
+         than one unbroken string: at full width both phrases sit on one
+         line ("6 seats confirmed free · 2 unknown"); when the info
+         panel's own width (narrow on the desktop workbench layout,
+         full-width but still finite on mobile) can't fit both, flex-wrap
+         moves the whole second phrase down as one unit instead of
+         letting the browser's own word-by-word wrap break either phrase
+         internally — caught by a real screenshot wrapping word-by-word
+         ("6 seats / confirmed / free · 2 / unknown") before this fix. */
+      .rat-room-summary-headline {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        column-gap: 0.4em;
+        font-size: 1.3rem;
+        font-weight: 700;
+      }
+      /* .rat-room-summary-free/-unknown's own rules live in the
+         is:global block further down this file, not here — the client
+         script's renderSummary() rebuilds these two spans via
+         document.createElement on every SSE update (so one span's text
+         can change without discarding/rebuilding the other), and Astro's
+         automatic per-component scoping only tags elements present in
+         the template at BUILD time. A scoped rule here would apply to
+         the server-rendered initial spans but silently stop matching
+         the instant the client script's first update replaced them —
+         confirmed directly: the server-rendered screenshot showed the
+         fix working, but any client-side update (even the same initial
+         values, reapplied by the page's own onOpen()-independent first
+         render) broke it. This is the exact same failure mode this
+         file's own hall-hover-card/hall-focus-panel comment already
+         documents for src/lib/hall-view/overlay.ts's dynamically
+         created DOM — not a new kind of bug. */
+      .rat-room-seats {
+        display: grid;
+        /* auto-fit + a minimum track width, not a fixed column count at a
+           fixed breakpoint: the info panel's own real width varies (a
+           narrow right-hand column on the desktop workbench layout, full
+           width on mobile/tablet — see .info-panel's own notes), and a
+           fixed repeat(3, ...) was caught by a real screenshot squeezing
+           each card too narrow for its own "? Unknown" badge text to
+           fit, clipping it against the card's own edge. minmax(8.5rem,
+           1fr) lets the grid pick however many columns actually fit at
+           that width without a hand-picked breakpoint. */
+        grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+        gap: 0.6rem;
+      }
+      .rat-room-seat {
+        position: relative;
+        min-width: 0;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 0.7rem 0.75rem;
+        box-shadow: 0 1px 2px rgba(44, 33, 21, 0.05);
+      }
+      .rat-room-seat-head {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .rat-room-seat-label {
+        flex: none;
+        width: 1.8rem;
+        height: 1.8rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        background: var(--surface-alt);
+        color: var(--accent-strong);
+        font-weight: 700;
+        font-size: 0.9rem;
+      }
+      .rat-room-seat .badge {
+        margin-left: auto;
+      }
+      .rat-room-seat .remaining {
+        font-size: 0.95rem;
+        margin-top: 0.4rem;
+      }
+      .rat-room-seat .confirmed {
+        font-size: 0.75rem;
+      }
+      .rat-room-seat-report {
+        margin-top: 0.6rem;
+      }
+      /* The per-seat toggle/minutes/button row is deliberately compact —
+         ten of these sit on screen at once, unlike every single-row
+         facility's own one full-width form — same shared
+         .aa-room-toggle/form.report-form primitives, smaller footprint. */
+      .rat-room-seat-report .aa-room-toggle-group {
+        margin-bottom: 0.5rem;
+      }
+      .rat-room-seat-report .aa-room-toggle span {
+        padding: 0.35rem 0.65rem;
+        font-size: 0.75rem;
+      }
+      .rat-room-seat-report input[type="number"] {
+        width: 100%;
+        margin-bottom: 0.4rem;
+      }
+      .rat-room-seat-report button[type="submit"] {
+        width: 100%;
+      }
     </style>
 
     {/* Stage 2's hover/focus overlay cards are created by
@@ -1435,6 +1628,30 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         text-align: right;
       }
     </style>
+
+    {/* Rat Room's summary spans (.rat-room-summary-free/-unknown) are
+        rebuilt via document.createElement by the client script's own
+        renderSummary() on every SSE update — the same "dynamically
+        created DOM, not present at build time" case the hover/focus
+        cards above already needed is:global for, so a second, separate
+        is:global block here rather than folding these into that block's
+        own deliberately-confined cyber/HUD theme (see that block's own
+        note on why its hardcoded hex palette stays contained to exactly
+        those two elements). This block uses the app's own design tokens,
+        matching the scoped .rat-room-summary-headline rule above
+        exactly — same visual result, just reachable from DOM the
+        template scoping can't see. */}
+    <style is:global>
+      .rat-room-summary-free,
+      .rat-room-summary-unknown {
+        white-space: nowrap;
+      }
+      .rat-room-summary-unknown {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--ink-muted);
+      }
+    </style>
   </head>
   <body data-status-meta={JSON.stringify(STATUS_META)}>
     <main>
@@ -1468,7 +1685,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         <button type="button" class="facility-tab" data-facility="otter-room">Otter Room</button>
         <button type="button" class="facility-tab" data-facility="rabbit-room">Rabbit Room</button>
         <button type="button" class="facility-tab" data-facility="badger-room">Badger Room</button>
-        <button type="button" class="facility-tab" disabled>Rat Room</button>
+        <button type="button" class="facility-tab" data-facility="rat-room">Rat Room</button>
         <button type="button" class="facility-tab" data-facility="weasel-room">Weasel Room</button>
       </nav>
 
@@ -1615,6 +1832,24 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             <section class="hall-view" aria-hidden="true" data-badger-room={JSON.stringify(badgerRoom)}>
               <div class="hall-view-canvas" id="badger-room-canvas"></div>
               <p class="hall-view-caption">Toad Hall — Badger Room, live</p>
+            </section>
+          </div>
+
+          {/* Rat Room's left pane — deliberately a plain placeholder, not
+              a 3D scene: this stage is the practical panel + realtime
+              integration only (see
+              notes/adr/0008-rat-room-live-state.md). A real diorama is
+              later work, the same "practical panel first, real scene
+              later" order every prior facility went through. No
+              renderer-host.ts registration at all — the generic
+              facility-tab script below only toggles [hidden] on
+              .facility-view[data-facility], and facility-switch.ts's
+              selectHallFacility() already no-ops safely for any key with
+              nothing registered, so plain static markup is sufficient for
+              facility switching to work correctly with no 3D code. */}
+          <div class="facility-view" data-facility="rat-room" hidden>
+            <section class="hall-view rat-room-placeholder" aria-hidden="true">
+              <p>Rat Room visual coming next.</p>
             </section>
           </div>
         </div>
@@ -2186,6 +2421,114 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             />
             <button type="submit">Report</button>
           </form>
+        </div>
+      </div>
+
+      {/* Rat Room's practical panel — UNLIKE every panel since AA Room,
+          this is not one occupancy badge: it's a pure-derived summary
+          ("how many seats are confirmed free right now") plus ten
+          independent seat cards, each its own occupancy +
+          optional-minutes form — see
+          notes/adr/0008-rat-room-live-state.md, Decision 1/4. No
+          room-level occupancy is ever stored; ratRoomSummary below is
+          computed fresh from these same ten seats on every page load,
+          the same way the client-side script recomputes it from the
+          current ten seats on every SSE update. Hidden by default; the
+          facility-tab script shows it only when Rat Room is selected.
+          No block-tabs: ten seats, not five locations. */}
+      <div
+        class="facility-view rat-room-panel"
+        data-facility="rat-room"
+        hidden
+        data-rat-room={JSON.stringify(ratRoomSeats)}
+      >
+        <section class="summary rat-room-summary" aria-label="Rat Room availability">
+          {/* The one headline a resident actually wants, as two separate
+              nowrap phrases rather than one string — purely a wrapping
+              concern: a narrow viewport should wrap BETWEEN "confirmed
+              free" and "unknown," never in the middle of either phrase
+              (e.g. never "6 seats / confirmed / free"). unknownCount is
+              named alongside the free count, never folded into it (ADR
+              0008, Decision 4) — the second span only renders when there
+              is an unknown seat to name. */}
+          <p class="rat-room-summary-headline">
+            <span class="rat-room-summary-free">{ratRoomSummaryParts.free}</span>
+            {ratRoomSummaryParts.unknown && (
+              <span class="rat-room-summary-unknown"> · {ratRoomSummaryParts.unknown}</span>
+            )}
+          </p>
+        </section>
+
+        {/* Ten independent seat cards — each its own occupancy badge,
+            confirmed-label, remaining-time line, and report form.
+            Reporting one seat must never touch any other seat's own
+            card (ADR 0008, Decision 6: each seat is its own resource with
+            its own version). No out-of-order, no machine type/location,
+            no startedAt, no appliance wording — these are computer-room
+            seats, not relabeled washing machines. */}
+        <div class="rat-room-seats">
+          {ratRoomSeats.map((seat) => (
+            <div class="rat-room-seat" data-seat={seat.seat} data-version={seat.version}>
+              <div class="rat-room-seat-head">
+                <span class="rat-room-seat-label" aria-hidden="true">{seat.seat}</span>
+                <span class:list={["badge", RAT_ROOM_SEAT_STATUS_META[seat.occupancy].class]}>
+                  <span aria-hidden="true">{RAT_ROOM_SEAT_STATUS_META[seat.occupancy].icon}</span>
+                  {RAT_ROOM_SEAT_STATUS_META[seat.occupancy].label}
+                </span>
+              </div>
+              {/* Always rendered, hidden when not occupied — same "stable
+                  node, toggled, never built from scratch" shape as every
+                  other facility's own .remaining paragraph. */}
+              <p
+                class:list={[
+                  "remaining",
+                  seat.occupancy === "occupied" &&
+                    ratRoomSeatRemainingLabel(seat.expectedEndAt).known === false &&
+                    "unknown-time",
+                ]}
+                hidden={seat.occupancy !== "occupied"}
+              >
+                {seat.occupancy === "occupied" ? ratRoomSeatRemainingLabel(seat.expectedEndAt).text : ""}
+              </p>
+              <span class="confirmed">{ratRoomSeatConfirmedLabel(seat.confirmedAt)}</span>
+
+              <div class="rat-room-seat-report">
+                {/* data-version on both the card (above) and this form is
+                    kept in sync with every canonical state this one
+                    seat's own script instance receives — a report/409 for
+                    seat C must never touch seat F's own data-version. */}
+                <form class="report-form rat-room-seat-report-form" data-seat={seat.seat} data-version={seat.version}>
+                  <fieldset class="aa-room-toggle-group" aria-label={`Seat ${seat.seat} status`}>
+                    <label class="aa-room-toggle">
+                      <input type="radio" name="occupancy" value="empty" checked={seat.occupancy === "empty"} />
+                      <span>Empty</span>
+                    </label>
+                    <label class="aa-room-toggle">
+                      <input type="radio" name="occupancy" value="occupied" checked={seat.occupancy === "occupied"} />
+                      <span>Occupied</span>
+                    </label>
+                  </fieldset>
+                  {/* Disabled (and cleared, by the report script's sync
+                      function) whenever occupancy isn't "occupied" — same
+                      discipline every other facility's own form already
+                      uses. Capped at 240 (4 hours) client-side as a
+                      fast-feedback mirror of the server's own real
+                      ceiling (ADR 0008, Decision 3) — the server
+                      re-validates regardless, this is just UX. */}
+                  <input
+                    type="number"
+                    name="minutes"
+                    min="1"
+                    max="240"
+                    placeholder="minutes left (optional)"
+                    aria-label={`Seat ${seat.seat} expected minutes remaining, optional`}
+                    disabled={seat.occupancy !== "occupied"}
+                  />
+                  <button type="submit">Report</button>
+                </form>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
         </div>
@@ -3856,6 +4199,294 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
 
           alert("couldn't save that report — try again");
         });
+      }
+    </script>
+
+    {/* Rat Room — UNLIKE every facility's own script above, this is not
+        "one canonical row, one set of DOM nodes": ten independent seat
+        resources (A-J), each its own card, each its own report form, each
+        its own data-version — see
+        notes/adr/0008-rat-room-live-state.md, Decision 1. Wired into the
+        page's one shared SSE connection (src/lib/live-stream.ts) from the
+        start, same as every other facility; onRatRoomEvent()'s own
+        listener carries ONE seat's state per call (ADR 0008, Decision 6),
+        so this script updates exactly that one seat's card and leaves
+        the other nine untouched, then recomputes the pure summary from
+        all ten currently-held seat states — never a second,
+        independently-tracked room-level flag. No 3D hook at all this
+        stage — the left pane is a plain placeholder, so there is no
+        applyRatRoomStateToScene() to call, unlike Otter/Rabbit/Weasel/
+        Badger Room's own scene hooks. */}
+    <script>
+      import { onRatRoomEvent, onOpen } from "../lib/live-stream.ts";
+
+      type RatRoomSeatOccupancy = "empty" | "occupied" | "unknown";
+      interface RatRoomSeatState {
+        id: string;
+        seat: string;
+        occupancy: RatRoomSeatOccupancy;
+        expectedEndAt: number | null;
+        confirmedAt: number | null;
+        version: number;
+      }
+
+      const STATUS_META: Record<RatRoomSeatOccupancy, { label: string; icon: string; class: string }> = {
+        empty: { label: "Empty", icon: "✓", class: "status-available" },
+        occupied: { label: "Occupied", icon: "●", class: "status-in-use" },
+        unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+      };
+
+      // Mirrors confirmedLabel()/remainingLabel() elsewhere on this page —
+      // all need the client's current clock, so none can be shared
+      // directly across the server/client boundary; kept tiny and
+      // behaviourally identical instead of invented differently here.
+      function confirmedLabel(confirmedAt: number | null): string {
+        if (confirmedAt === null) return "never reported";
+        const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+        if (minutes < 1) return "confirmed just now";
+        return `confirmed ${minutes} min ago`;
+      }
+
+      function remainingLabel(expectedEndAt: number | null): { text: string; known: boolean } {
+        if (expectedEndAt === null) return { text: "remaining time unknown", known: false };
+        const minutes = Math.round((expectedEndAt - Date.now()) / 60_000);
+        return minutes > 0
+          ? { text: `${minutes} min left`, known: true }
+          : { text: "should be finishing", known: true };
+      }
+
+      // The one headline a resident actually wants — count of seats
+      // CONFIRMED empty, and only that (ADR 0008, Decision 4).
+      // unknownCount is never folded into it in either direction.
+      //
+      // Rendered as the same two-span structure the server-rendered
+      // markup already uses (.rat-room-summary-free/-unknown, each
+      // white-space: nowrap) — never collapsed into one textContent
+      // string. A single string would destroy the server's own spans the
+      // very first time this runs (every initial seat update calls this),
+      // silently reintroducing the word-by-word wrapping this structure
+      // exists to prevent — caught by a real screenshot showing the
+      // headline broken across lines mid-phrase despite the CSS being
+      // otherwise correct.
+      function renderSummary(container: HTMLElement, seats: Map<string, RatRoomSeatState>): void {
+        let emptyCount = 0;
+        let unknownCount = 0;
+        for (const seat of seats.values()) {
+          if (seat.occupancy === "empty") emptyCount++;
+          else if (seat.occupancy === "unknown") unknownCount++;
+        }
+        const free = `${emptyCount} seat${emptyCount === 1 ? "" : "s"} confirmed free`;
+
+        container.innerHTML = "";
+        const freeEl = document.createElement("span");
+        freeEl.className = "rat-room-summary-free";
+        freeEl.textContent = free;
+        container.appendChild(freeEl);
+
+        if (unknownCount > 0) {
+          const unknownEl = document.createElement("span");
+          unknownEl.className = "rat-room-summary-unknown";
+          unknownEl.textContent = ` · ${unknownCount} unknown`;
+          container.appendChild(unknownEl);
+        }
+      }
+
+      const panel = document.querySelector<HTMLElement>(".rat-room-panel");
+      const summaryEl = panel?.querySelector<HTMLElement>(".rat-room-summary-headline");
+
+      // One client-side cache of all ten seats' own last-known canonical
+      // state — the ONLY reason this exists is so the summary can be
+      // recomputed from the full ten-seat picture after a single seat's
+      // own SSE/PATCH update, without a second fetch of the other nine.
+      // This is a read-side cache of server-confirmed state, never a
+      // second source of truth the ten seats' own rows could disagree
+      // with — every entry is always a verbatim copy of whatever the
+      // server's own canonical payload for that seat most recently said.
+      const seatCache = new Map<string, RatRoomSeatState>();
+
+      interface SeatElements {
+        card: HTMLElement;
+        statusBadge: HTMLElement;
+        remainingEl: HTMLElement;
+        confirmedEl: HTMLElement;
+        form: HTMLFormElement;
+        occupancyRadios: HTMLInputElement[];
+        minutesInput: HTMLInputElement | null;
+      }
+
+      const seatElements = new Map<string, SeatElements>();
+      if (panel) {
+        for (const card of Array.from(panel.querySelectorAll<HTMLElement>(".rat-room-seat"))) {
+          const seat = card.dataset.seat!;
+          const form = card.querySelector<HTMLFormElement>(".rat-room-seat-report-form");
+          const statusBadge = card.querySelector<HTMLElement>(".badge");
+          const remainingEl = card.querySelector<HTMLElement>(".remaining");
+          const confirmedEl = card.querySelector<HTMLElement>(".confirmed");
+          if (!form || !statusBadge || !remainingEl || !confirmedEl) continue;
+          seatElements.set(seat, {
+            card,
+            statusBadge,
+            remainingEl,
+            confirmedEl,
+            form,
+            occupancyRadios: Array.from(form.querySelectorAll<HTMLInputElement>('input[name="occupancy"]')),
+            minutesInput: form.querySelector<HTMLInputElement>('input[name="minutes"]'),
+          });
+        }
+      }
+
+      function occupancyValueFor(els: SeatElements): string | undefined {
+        return els.occupancyRadios.find((r) => r.checked)?.value;
+      }
+
+      // Disables (and clears) one seat's own minutes input whenever its
+      // own occupancy selection isn't "occupied" — the direct guarantee
+      // that an Empty report for THIS seat never carries a leftover
+      // estimate (ADR 0008, Decision 2). Scoped to one seat's own
+      // elements only — never touches any other seat's own form.
+      function syncMinutesInput(els: SeatElements): void {
+        if (!els.minutesInput) return;
+        const occupied = occupancyValueFor(els) === "occupied";
+        els.minutesInput.disabled = !occupied;
+        if (!occupied) els.minutesInput.value = "";
+      }
+
+      // Applies ONE seat's canonical state to its own card only — used
+      // for the initial server-rendered state (called once per seat
+      // below), that seat's own PATCH response (success or 409 conflict
+      // alike), and any other session's push over SSE naming this seat.
+      // Never touches any other seat's own card/form/data-version — a
+      // report or decay on seat C must be structurally incapable of
+      // changing seat F's own DOM. After updating the one seat, the
+      // room-level summary is recomputed from ALL ten currently-cached
+      // seats, never read from or written to a second, separately-stored
+      // value (ADR 0008, Decision 4).
+      function applyRatRoomSeatUpdate(seat: RatRoomSeatState): void {
+        seatCache.set(seat.seat, seat);
+        if (summaryEl) renderSummary(summaryEl, seatCache);
+
+        const els = seatElements.get(seat.seat);
+        if (!els) return;
+
+        const meta = STATUS_META[seat.occupancy];
+        els.statusBadge.className = `badge ${meta.class}`;
+        els.statusBadge.innerHTML = `<span aria-hidden="true">${meta.icon}</span>${meta.label}`;
+
+        if (seat.occupancy === "occupied") {
+          const remaining = remainingLabel(seat.expectedEndAt);
+          els.remainingEl.hidden = false;
+          els.remainingEl.classList.toggle("unknown-time", !remaining.known);
+          els.remainingEl.textContent = remaining.text;
+        } else {
+          els.remainingEl.hidden = true;
+          els.remainingEl.textContent = "";
+        }
+
+        els.confirmedEl.textContent = confirmedLabel(seat.confirmedAt);
+
+        els.card.dataset.version = String(seat.version);
+        els.form.dataset.version = String(seat.version);
+      }
+
+      if (panel) {
+        // Initial state: every seat card already carries its own
+        // server-rendered data via the panel's own data-rat-room payload
+        // (all ten seats, from this page load's real read) — read once
+        // here to seed seatCache/the summary, the same "no second fetch
+        // for the starting state" shape every other facility's own
+        // initial-state read uses.
+        const initialSeats = JSON.parse(panel.dataset.ratRoom!) as RatRoomSeatState[];
+        for (const seat of initialSeats) applyRatRoomSeatUpdate(seat);
+
+        for (const els of seatElements.values()) {
+          for (const radio of els.occupancyRadios) radio.addEventListener("change", () => syncMinutesInput(els));
+          syncMinutesInput(els);
+        }
+
+        // A push from ANY session's report or decay transition, over the
+        // page's one shared SSE connection — carrying exactly ONE seat's
+        // state per event (ADR 0008, Decision 6). This never touches any
+        // seat other than the one named in the payload.
+        onRatRoomEvent((seat) => {
+          applyRatRoomSeatUpdate(seat);
+        });
+
+        // (Re)connect re-fetches ALL TEN seats — the same "a
+        // (re)connection's own read is itself a qualifying read"
+        // principle every other facility's onOpen() handler already
+        // relies on, widened here to ten individual fetches since Rat
+        // Room has no single "GET everything" route (ADR 0008,
+        // Mechanics: the page's own initial render already reads all ten
+        // directly; the client mirrors that same shape on reconnect).
+        onOpen(() => {
+          for (const seatLetter of seatElements.keys()) {
+            fetch(`/api/rat-room/${seatLetter}`)
+              .then((res) => res.json() as Promise<RatRoomSeatState>)
+              .then(applyRatRoomSeatUpdate);
+          }
+        });
+
+        for (const [seatLetter, els] of seatElements) {
+          els.form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const occupancy = occupancyValueFor(els)!;
+            // Only read when occupied AND the input is actually enabled —
+            // mirrors every other facility's own "checked AND
+            // currently-enabled" guard, so a stale value sitting in a
+            // disabled input can never be submitted as part of an Empty
+            // report even if syncMinutesInput() somehow hadn't cleared it.
+            const minutesRaw = occupancy === "occupied" && els.minutesInput && !els.minutesInput.disabled
+              ? els.minutesInput.value
+              : "";
+            const minutes = minutesRaw === "" ? null : Number(minutesRaw);
+            const ifVersion = Number(els.form.dataset.version);
+
+            // No reporterId here, same as every other facility's report
+            // script — the actor is resolved server-side from this
+            // browser's session cookie
+            // (notes/adr/0002-identity-and-permissions.md). expectedEndAt
+            // is only ever sent when occupied and a minute estimate was
+            // actually given (ADR 0008, Decision 2: never inherited from
+            // a prior report on this same seat).
+            const res = await fetch(`/api/rat-room/${seatLetter}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                occupancy,
+                ifVersion,
+                expectedEndAt:
+                  occupancy === "occupied" && minutes !== null ? Date.now() + minutes * 60_000 : undefined,
+              }),
+            });
+
+            if (res.ok) {
+              const seat = (await res.json()) as RatRoomSeatState;
+              applyRatRoomSeatUpdate(seat);
+              syncMinutesInput(els);
+              return;
+            }
+
+            if (res.status === 409) {
+              // Same conflict UX as every other facility's report script,
+              // scoped to THIS seat alone: say so plainly, show the state
+              // the server actually holds for this one seat, let the
+              // resident decide whether to report again — never a silent
+              // overwrite, never a silent reload, and never touching any
+              // other seat's own card.
+              const { current } = await res.json();
+              applyRatRoomSeatUpdate(current as RatRoomSeatState);
+              syncMinutesInput(els);
+              const label = STATUS_META[(current as RatRoomSeatState).occupancy]?.label ?? (current as RatRoomSeatState).occupancy;
+              alert(
+                `Seat ${seatLetter} changed since you last saw it — it's now reported as "${label}". ` +
+                  "The card shows that now; check it and report again if it's still wrong.",
+              );
+              return;
+            }
+
+            alert("couldn't save that report — try again");
+          });
+        }
       }
     </script>
   </body>
