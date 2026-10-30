@@ -1,20 +1,27 @@
 # Toad Live
 
 Toad Live is a live status board for Toad Hall's shared spaces, kept
-current by whoever last walked past, not sensors. Five facilities carry
+current by whoever last walked past, not sensors. Six facilities carry
 real shared state today: Laundry (five rooms, ten machines), the Anton
 Aalbers (AA) Room common room, the Otter Room study room, the Rabbit Room
-group-study/shared-meal room, and the Weasel Room music practice room;
-the rest of the Hall is named in the navigation as where this goes next,
-not shipped. Laundry proved the shape; AA Room, Otter Room, Rabbit Room,
-and Weasel Room each earned their own state model from what's actually
-true about that specific room, not a template copied from Laundry's —
-Rabbit Room, for instance, really is used for two different things, group
-study and shared meals, but its live state only ever records whether the
-room is occupied, never which of the two is happening, since that
-distinction has no decision-relevant value to a resident checking the
-app. Weasel Room is the same story with guitar and keyboard: two real
-instruments, one occupancy field, never a record of which one is in use.
+group-study/shared-meal room, the Weasel Room music practice room, and
+the Badger Room formal meeting/interview room; the rest of the Hall is
+named in the navigation as where this goes next, not shipped. Laundry
+proved the shape; AA Room, Otter Room, Rabbit Room, Weasel Room, and
+Badger Room each earned their own state model from what's actually true
+about that specific room, not a template copied from Laundry's — Rabbit
+Room, for instance, really is used for two different things, group study
+and shared meals, but its live state only ever records whether the room
+is occupied, never which of the two is happening, since that distinction
+has no decision-relevant value to a resident checking the app. Weasel
+Room is the same story with guitar and keyboard: two real instruments,
+one occupancy field, never a record of which one is in use. Badger Room
+pushes that same question hardest — formal meetings, interviews, special
+study, and organised activities like Toad's Table are genuinely several
+different things, and the room is formal enough that it might seem to
+need a booking system, but its live state still only ever records
+whether it's occupied and, optionally, when a resident expects to
+finish.
 
 ## Why this, and why for Toad Hall specifically
 
@@ -71,14 +78,14 @@ not owned. See `notes/adr/0002-identity-and-permissions.md`.
 ## What we chose not to build
 
 Verified resident identity, and any booking or reservation system — a
-status layer, not a scheduler. Otter Room's, Rabbit Room's, and Weasel
-Room's own paper sign-up sheets on the door are real-world artifacts Toad
-Live deliberately doesn't digitize; each shows its room's state right
-now, never a future reservation. Badger and Rat Rooms aren't built yet,
-though the workbench reserves their place so adding one later is new
-server-backed state, not a redesign. Real-time delivery and concurrency
-were decided at Crit 9, identity at Crit 10, both verified live. Presence
-stays out of scope.
+status layer, not a scheduler. Otter Room's, Rabbit Room's, Weasel
+Room's, and Badger Room's own paper sign-up sheets on the door are
+real-world artifacts Toad Live deliberately doesn't digitize; each shows
+its room's state right now, never a future reservation. Rat Room isn't
+built yet, though the workbench reserves its place so adding it later is
+new server-backed state, not a redesign. Real-time delivery and
+concurrency were decided at Crit 9, identity at Crit 10, both verified
+live. Presence stays out of scope.
 
 ## Enforced vs. judged
 

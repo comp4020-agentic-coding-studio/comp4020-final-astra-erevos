@@ -69,20 +69,22 @@ let this file, the README's argument, and the code drift apart.
   build account creation, passwords, or verification of who a person
   actually is without a new decision record. See
   `notes/adr/0002-identity-and-permissions.md`.
-- **Otter Room's, Rabbit Room's, and Weasel Room's occupied decay is each
-  `min(expectedEndAt, confirmedAt + 4h)`, not the Laundry dryer's if/else
-  fallback shape.** Each room's 4-hour ceiling is a real, already-existing
-  Toad Hall norm confirmed independently for that specific room (residents
-  already don't use any of the three rooms past four hours) and always
-  applies, whether or not a resident supplied an estimate — it is not a
-  provisional placeholder standing in for missing data the way
-  `UNTIMED_IN_USE_DECAY_MS` is for an untimed dryer, and must never be
-  "simplified" into that two-branch shape. This is not a claim that every
-  future room shares this contract — each new facility re-earns its own
-  decay shape from its own facts (see `notes/adr/0004-otter-room-live-state.md`,
-  `notes/adr/0005-rabbit-room-live-state.md`, and
-  `notes/adr/0006-weasel-room-live-state.md`, each Decision 2); it only
-  happens to be settled, independently, for these three rooms so far.
+- **Otter Room's, Rabbit Room's, Weasel Room's, and Badger Room's
+  occupied decay is each `min(expectedEndAt, confirmedAt + 4h)`, not the
+  Laundry dryer's if/else fallback shape.** Each room's 4-hour ceiling is
+  a real, already-existing Toad Hall norm confirmed independently for
+  that specific room (residents already don't use any of the four rooms
+  past four hours) and always applies, whether or not a resident
+  supplied an estimate — it is not a provisional placeholder standing in
+  for missing data the way `UNTIMED_IN_USE_DECAY_MS` is for an untimed
+  dryer, and must never be "simplified" into that two-branch shape. This
+  is not a claim that every future room shares this contract — each new
+  facility re-earns its own decay shape from its own facts (see
+  `notes/adr/0004-otter-room-live-state.md`,
+  `notes/adr/0005-rabbit-room-live-state.md`,
+  `notes/adr/0006-weasel-room-live-state.md`, and
+  `notes/adr/0007-badger-room-live-state.md`, each Decision 2); it only
+  happens to be settled, independently, for these four rooms so far.
 
 ## Persistence
 

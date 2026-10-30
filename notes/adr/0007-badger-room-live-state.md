@@ -1,10 +1,16 @@
 # ADR 0007: Badger Room's shared live state
 
-**Status**: Decided — not yet implemented. This ADR fixes the state
-model, statuses, and decay rules for Toad Live's sixth facility before
-any schema, API, or UI work begins, the same order ADR
-0001/0002/0003/0004/0005/0006 each used (see `PROCESS.md`'s "Rewritten
-each time the project's shape genuinely changed" convention).
+**Status**: Implemented and verified locally — production verification
+pending. This ADR fixed the state model, statuses, and decay rules for
+Toad Live's sixth facility before any schema, API, or UI work began, the
+same order ADR 0001/0002/0003/0004/0005/0006 each used (see
+`PROCESS.md`'s "Rewritten each time the project's shape genuinely
+changed" convention). Backend, practical panel, and 3D scene are all
+built and locally verified per the Verification section below; unlike
+ADR 0004/0005/0006, this facility has not yet been shipped to the
+deployed Fly app, so this ADR does not yet claim "verified live" — that
+update is deferred to its own close-out step once production smoke
+testing actually runs.
 
 **This ADR's conclusion looks identical to ADR 0004's (Otter Room), ADR
 0005's (Rabbit Room), and ADR 0006's (Weasel Room) — the same
@@ -444,20 +450,95 @@ reports trustworthy for longer, that would be a new decision with its own
 evidence — not something this ADR's current reasoning already accounts
 for.
 
-## Verification plan (not yet run — nothing is implemented)
+## Verification
 
-Mirroring ADR 0004/0005/0006's own verification plans:
+Mirroring ADR 0004/0005/0006's own verification plans, and now their
+actual execution for Badger Room:
 
-- automated: a persistence test; `ifVersion`/409 conflict coverage; a
-  `PATCH` rejection test for `occupancy: "unknown"`; rejection tests for
-  `expectedEndAt` beyond 4 hours and at-or-before `now`; a rejection test
-  for `expectedEndAt` alongside `occupancy: "empty"`; a no-inheritance
-  test; unit tests for the decay function's three branches against
-  constructed timestamps, following
-  `spec/weasel-room-decay.test.ts`'s throwaway-database technique;
-  identity/permission tests; an SSE test confirming an already-open
-  stream receives `event: badger-room`.
-- manual, real browser: the same Playwright-based verification Otter
-  Room's, Rabbit Room's, and Weasel Room's backend/panel/3D stages each
-  used, including a post-deploy production smoke check before this ADR's
-  status moves to "verified live."
+- **automated — 32 new tests, 212/212 total across the suite.**
+  `spec/badger-room.test.ts` (18 tests): HTTP-level persistence; `GET`
+  shape confirming no `freshness`/`activities` field; occupied with and
+  without `expectedEndAt`; empty always clearing `expectedEndAt`;
+  per-observation non-inheritance; rejection of `expectedEndAt` alongside
+  `empty`; rejection beyond the 4-hour ceiling and at-or-before `now`;
+  rejection of `occupancy: "unknown"` as a reported value; rejection of a
+  non-integer `ifVersion`; a stale `ifVersion` returning `409` with
+  current canonical state and no mutation; `401` with no session; `400` on
+  a client-asserted actor field; SSE coverage confirming an already-open
+  stream receives `event: badger-room` on both an accepted report and not
+  on a `409`/`400`. `spec/badger-room-decay.test.ts` (14 tests):
+  store-level coverage of fresh-seed and idempotent-seed behavior; `empty`
+  staying put within 15 minutes and decaying past it; `occupied` with no
+  `expectedEndAt` staying put within 4 hours and decaying past it;
+  `occupied` with `expectedEndAt` decaying at the estimate, never at the
+  4-hour mark, when the estimate is earlier; the 4-hour ceiling capping an
+  estimate that would otherwise run longer; non-inheritance enforced at
+  the store layer independent of the API route; a decay transition
+  broadcasting exactly once and not broadcasting when nothing is stale; a
+  stale `ifVersion` write rejected with no mutation and no broadcast.
+  `badger-room.ts`/`badger-room-db.ts` followed the same pure-store-logic
+  plus production-wiring split `91167bd` established for AA/Otter/Rabbit
+  Room from the start (see `PROCESS.md`), so adding this fifth
+  `*-decay.test.ts` file did not reintroduce the SQLite-lock race that
+  split was built to eliminate — confirmed by running all five decay spec
+  files (`aa-room-decay`, `otter-room-decay`, `rabbit-room-decay`,
+  `weasel-room-decay`, `badger-room-decay`) together, in parallel,
+  repeatedly, with zero `database is locked` errors. A dedicated
+  investigation before implementation confirmed no "system only has N
+  facilities" assumption remained anywhere in the test infrastructure
+  (every existing facility's own SSE test helper already used the
+  generic "skip anything that isn't `event: <own>`" pattern the Weasel
+  Room milestone's own fix established — see `PROCESS.md`), so adding a
+  sixth SSE event required zero changes to any sibling facility's own
+  spec file, unlike the two successive patches Rabbit Room's and Weasel
+  Room's own arrivals each needed.
+- **manual, real browser — practical panel.** Two independent browser
+  sessions against the dev server confirmed a report in one reaches the
+  other within about a second with no reload, and that each session's
+  initial `GET` reflects the other's last report correctly; Empty/Occupied
+  toggling with and without a minutes estimate was exercised directly
+  through the form, including the minutes input's 240-minute (4h) cap; a
+  forced stale `ifVersion` produced the conflict path in the UI, not a
+  silent overwrite; a direct `PATCH` of `occupancy: "unknown"` was
+  confirmed rejected `400`, with no UI path ever offering it.
+- **manual, real browser — 3D scene, in two stages.** Stage 1 (static
+  Empty shell, no figures) was screenshotted and reviewed for room
+  structure alone before any occupancy layer was added — conference
+  table + ~10 chairs, piano, large TV, two sofas, and a door threshold
+  all confirmed visible and spatially distinct in one frame, with no
+  overlap between any two fixtures. Two real rendering issues were caught
+  by screenshot and fixed before review: the piano's taller cabinet
+  initially occluded its own shorter keybed from this app's fixed
+  isometric camera, reading as one undifferentiated dark box, fixed by
+  swapping which element sits nearer the camera; and a first pass placed
+  the piano's keys facing the camera/open front rather than the room's
+  own west wall, caught in a post-screenshot real-person review and
+  corrected by rotating the whole assembly -90 degrees so the keys face
+  west and the cabinet backs onto the east side, matching the room's
+  real layout. The TV was confirmed to read as a real, thick freestanding
+  object sitting against the south edge, never a flat panel floating with
+  no wall behind it (the open front has no wall at all, per the file's
+  own top note). Stage 2 confirmed, via screenshots and a continuous
+  `occupied → empty → occupied` cycle (`unknown` forced directly at the
+  store level, since it is never client-reportable): Empty shows the
+  static room with no figures or props; Occupied shows three seated
+  figures at real conference-table chair positions plus one standing
+  figure, all neutral enough to be compatible with a formal meeting, an
+  interview, special study, or an organised activity like Toad's Table,
+  with zero residue carried over between cycles and no figure blocking
+  the conference table/piano/TV/sofas' own spatial legibility; Unknown
+  shows the full room structure desaturated and dimmed with no figures;
+  an `expectedEndAt` estimate never changes the 3D state beyond plain
+  `occupied` (confirmed screenshots with and without an estimate render
+  identically); reduced motion was confirmed to render a single static
+  occupied pose, byte-identical (sha256-matched) across a 1.5-second gap,
+  rather than losing state information. Facility switching (Laundry → AA
+  Room → Otter Room → Rabbit Room → Weasel Room → Badger Room → Laundry)
+  was confirmed to tear down and remount cleanly through the existing
+  shared renderer, with zero console/page errors throughout, across both
+  the Stage 1 and Stage 2 verification passes.
+- **production, against the deployed Fly app — pending.** Not yet run.
+  Badger Room has not been pushed or deployed; this ADR's status will
+  move to "verified live" only once the same production smoke checklist
+  every prior facility's own ADR records here has actually been executed
+  against the live URL.

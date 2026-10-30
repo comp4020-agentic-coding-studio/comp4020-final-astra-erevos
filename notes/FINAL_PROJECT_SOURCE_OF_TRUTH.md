@@ -142,6 +142,30 @@ Machine states (confirmed, not invented edge cases):
   - formal meeting / interview room;
   - special study or organised activities.
 
+  **Confirmed and implemented (2026-10-31):** Toad Live's sixth
+  live-state facility, after Laundry, AA Room, Otter Room, Rabbit Room,
+  and Weasel Room — see
+  `notes/adr/0007-badger-room-live-state.md`. Live state is `empty` /
+  `occupied` / `unknown`, with the same kind of optional,
+  resident-estimated `expectedEndAt` every other occupancy-only room
+  uses, never an activity taxonomy, headcount, digital booking, or
+  piano/TV-status field — formal meetings, interviews, special study, and
+  organised activities like Toad's Table are several real, distinct uses
+  of this room, but knowing which one is happening has no
+  decision-relevant value to a resident checking the app, and this room's
+  own brief is explicit that a passerby only cares whether it's in use.
+  `empty` decays to `unknown` after 15 minutes — independently re-derived
+  for this room specifically because, unlike every prior occupancy room,
+  Badger Room is explicitly **not frequently booked**: low booking
+  frequency affects the room's *prior probability* of being occupied, not
+  how long one already-confirmed empty observation stays authoritative,
+  so the 15-minute figure still applies even though the usual "this room
+  turns over quickly" argument doesn't. `occupied` decays at
+  `min(expectedEndAt, confirmedAt + 4h)`, the same 4-hour figure
+  confirmed as a real, already-existing Toad Hall norm for this room
+  specifically. No booking calendar, no future reservation — the same
+  scope boundary every other implemented facility keeps.
+
 - **Rat Room — Computer Room**
   - computers and printing;
   - primarily a study space.
@@ -226,10 +250,11 @@ For example:
 - facility names and locations are stable information.
 
 Several facility-specific expiry rules are now decided — AA Room, Otter
-Room, Rabbit Room, and Weasel Room each have their own confirmed decay
-model (see §3 and §10). The broader freshness policy remains partially
-open: in particular, Laundry's own `available`/`unknown` lifetimes and
-its provisional untimed in-use window are not yet finalized (§3, §10).
+Room, Rabbit Room, Weasel Room, and Badger Room each have their own
+confirmed decay model (see §3 and §10). The broader freshness policy
+remains partially open: in particular, Laundry's own `available`/
+`unknown` lifetimes and its provisional untimed in-use window are not yet
+finalized (§3, §10).
 
 A major design question for the project is therefore:
 
@@ -410,18 +435,18 @@ The following should be interrogated before they are fixed:
   confirmed as non-expiring — see §3);
 - whether historical state is useful or only the present matters;
 - how many *non-laundry* rooms should exist in the first full version —
-  **partially decided**: AA Room, Otter Room, Rabbit Room, and Weasel
-  Room are all now confirmed and implemented (§3); Badger/Rat remain
+  **partially decided**: AA Room, Otter Room, Rabbit Room, Weasel Room,
+  and Badger Room are all now confirmed and implemented (§3); Rat remains
   open;
 - whether rooms are manually updated, timer-driven or both — **decided
   for every implemented facility so far**: manually reported, with lazy
   read-triggered decay back toward `unknown` (never a timer or a
   connection event) — see §3's Laundry/AA Room/Otter Room/Rabbit Room/
-  Weasel Room entries;
+  Weasel Room/Badger Room entries;
 - the role of booking information, if any — **decided for Otter Room,
-  Rabbit Room, and Weasel Room**: none. Live state only, no booking
-  calendar, no future reservation (§3). Still open for any room not yet
-  implemented;
+  Rabbit Room, Weasel Room, and Badger Room**: none. Live state only, no
+  booking calendar, no future reservation (§3). Still open for any room
+  not yet implemented;
 - the scope of community notes;
 - how the 3D / animated layer should work;
 - which claims about "good" should become automated checks.

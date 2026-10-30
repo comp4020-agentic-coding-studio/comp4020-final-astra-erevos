@@ -361,12 +361,121 @@ SSE sync driving the panel and 3D figures together, and a clean
 `flyctl logs` trace — no production-only product bug surfaced. See the
 ADR's own Verification section for the full detail.
 
+## Badger Room: the same shape again, but the 15-minute figure needed a real argument this time
+
+Badger Room's own ADR
+([`notes/adr/0007-badger-room-live-state.md`](notes/adr/0007-badger-room-live-state.md))
+lands on the same `occupancy` + optional `expectedEndAt` shape Otter
+Room, Rabbit Room, and Weasel Room each already use — again re-derived
+independently from Badger Room's own stated facts, not assumed because
+it's now the fourth room to look this way. Formal meetings, interviews,
+special study, and organised activities like Toad's Table are genuinely
+more numerous and more formally distinct uses than any prior room's own
+brief named, which made this room the sharpest test yet of whether "does
+knowing *which* use is active tell a resident anything they'd act on
+differently" still holds — it does not, and if anything the formal
+character of these uses makes "which one" feel even less relevant to a
+passerby than a casual room would.
+
+**The real argumentative difference from Otter/Rabbit/Weasel Room is a
+fact none of those three rooms' own briefs stated: Badger Room is
+explicitly *not* frequently booked.** That single fact forced the
+15-minute `empty` decay figure to be re-derived from scratch rather than
+carried forward by resemblance, because each prior room's own 15-minute
+figure came from that room's own observation-volatility reasoning, not
+from one shared universal argument that would automatically transfer.
+The resolution: low booking frequency is evidence about the room's
+*prior probability* of being occupied at any given moment — a passerby
+is less likely, on average, to find it in use — but that's a different
+question from how long one *already-confirmed* "empty" observation
+should stay authoritative. Badger Room uses the same paper sign-up/
+walk-in mechanism as every other room with a sign-up sheet, so its actual
+state can change with no new Toad Live report regardless of how often the
+room gets booked in aggregate; an "empty" report still only ever means
+"someone just confirmed nobody is here right now," and infrequent booking
+doesn't make that moment-in-time claim durable for longer on its own.
+That independent re-derivation lands on the same 15-minute number every
+prior room uses — not because the number was assumed to transfer, but
+because the underlying freshness judgement, worked through on this
+room's own terms, happens to agree. The 4-hour `occupied` ceiling is,
+same as every prior room, its own independently confirmed real-world
+community norm for Badger Room specifically, not inferred from the other
+three rooms sharing the figure. No activity taxonomy, no headcount
+field, no booking calendar, and no piano/TV status were built — the
+conference table's seating, the piano, and the large TV are named
+furniture this room has, never something Toad Live reports the condition
+of, the same scope boundary Otter Room's heater, Rabbit Room's kitchen
+appliances, and Weasel Room's guitar/keyboard each already drew.
+
+Two things this milestone didn't have to re-learn, because they were
+already fixed infrastructure by the time it started:
+
+- **The backend never risked reintroducing the SQLite-lock race.**
+  `badger-room.ts`/`badger-room-db.ts` followed `91167bd`'s pure-logic/
+  production-wiring split from the first line written — so becoming the
+  *fifth* `*-decay.test.ts` file never came close to repeating the
+  sqlite-lock incident Rabbit Room's own arrival originally caused.
+  Verified directly: all five decay spec files (`aa-room-decay`,
+  `otter-room-decay`, `rabbit-room-decay`, `weasel-room-decay`,
+  `badger-room-decay`) run together, in parallel, repeatedly, zero lock
+  errors.
+- **Adding a sixth SSE event required touching zero sibling test
+  files.** A dedicated investigation before any code was written
+  confirmed every existing facility's own SSE stream helper already used
+  the generic "skip any block whose event name isn't `event: <own>`"
+  pattern Weasel Room's own milestone fixed `spec/aa-room.test.ts` to use
+  — so unlike Rabbit Room's and Weasel Room's own arrivals (each of which
+  needed a fix to that one helper), Badger Room's sixth named event,
+  `event: badger-room`, needed no change anywhere outside its own new
+  files. The two successive fixes to that one recurring assumption are
+  what made this one a non-event.
+
+The 3D stage kept the order Weasel Room's own work established — a
+static Empty shell, reviewed for room structure before any occupancy
+layer exists — and, same as before, a real screenshot caught something a
+plan alone wouldn't have: the piano's taller cabinet occluded its own
+shorter keybed from this app's fixed isometric camera, reading as one
+undifferentiated dark box rather than a recognizable instrument, fixed by
+swapping which element sits nearer the camera. A second correction came
+from the user's own real-person review of the Stage 1 screenshots after
+the first fix: the piano's keys initially faced the camera/open front,
+not the room's own west wall as the brief actually describes, and were
+rotated -90 degrees in place to face west with the cabinet backing onto
+the east side — a reminder that a geometrically-valid, non-buggy build
+can still be wrong relative to the room's real layout, and that
+screenshot review catches that class of error differently than a
+rendering-bug check does. The large TV was built as a real, freestanding
+solid with genuine thickness (a stand, a body, a screen box) rather than
+a thin wall-mounted panel, specifically because the south side of every
+room in this app is the open front with no wall at all — a flat panel
+placed there would have floated with nothing behind it the moment the
+cutaway hid that side, the same class of mistake Otter Room's own window
+bug once was, caught here before it ever reached a screenshot by
+reasoning from the existing wall-visibility rule rather than after the
+fact.
+
+The occupied-state figures stay as deliberately neutral as Rabbit Room's
+and Weasel Room's own — level head, hands resting, nothing raised to
+playing height or directed at the TV — so the scene only ever says
+"occupied," never "in a meeting," "being interviewed," "at Toad's Table,"
+or "playing piano/watching TV," the same boundary ADR 0007's Decision 1
+draws in the data model itself. Three of the four figures reuse real
+conference-table chair slots rather than inventing furniture-free
+standing room, so a seated figure always reads as sitting at the table,
+not floating in open floor space.
+
+Not yet shipped to Fly — this milestone stops at local verification (see
+the ADR's own Verification section for the full automated/manual detail)
+with production smoke testing deliberately deferred to its own close-out
+step, the same staged-commit discipline every prior facility's milestone
+followed.
+
 ## What's still ahead
 
 The broader freshness policy — `available`/`unknown` lifetimes, the
 provisional 12-hour window — stays open pending real cycle-time data,
 tracked in `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. Verified
 resident identity is a possible later upgrade, not a current gap.
-Presence remains out of scope. Badger and Rat Rooms remain unimplemented
-and open for later Final Project scope decisions — not permanently out
-of scope, just not yet interrogated.
+Presence remains out of scope. Badger Room awaits production shipping;
+Rat Room remains unimplemented and open for later Final Project scope
+decisions — not permanently out of scope, just not yet interrogated.
