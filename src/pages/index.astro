@@ -4,12 +4,14 @@ import { getAaRoom } from "../lib/aa-room-db.ts";
 import { getOtterRoom, OTTER_ROOM_MAX_OCCUPIED_MS } from "../lib/otter-room-db.ts";
 import { getRabbitRoom, RABBIT_ROOM_MAX_OCCUPIED_MS } from "../lib/rabbit-room-db.ts";
 import { getWeaselRoom, WEASEL_ROOM_MAX_OCCUPIED_MS } from "../lib/weasel-room-db.ts";
+import { getBadgerRoom, BADGER_ROOM_MAX_OCCUPIED_MS } from "../lib/badger-room-db.ts";
 import type {
   AaRoomActivity,
   AaRoomOccupancy,
   OtterRoomOccupancy,
   RabbitRoomOccupancy,
   WeaselRoomOccupancy,
+  BadgerRoomOccupancy,
 } from "../lib/types.ts";
 import {
   COOKIE_NAME,
@@ -75,6 +77,15 @@ const rabbitRoom = getRabbitRoom();
 // room's own facts), reusing the same "plain page-load read, kept live
 // by its own script" pattern. See notes/adr/0006-weasel-room-live-state.md.
 const weaselRoom = getWeaselRoom();
+
+// Badger Room — Toad Live's sixth facility. Same shape and panel
+// semantics as Otter Room, Rabbit Room, and Weasel Room (ADR 0007
+// independently confirmed the same occupancy+optional-expectedEndAt
+// model for this room's own facts), reusing the same "plain page-load
+// read, kept live by its own script" pattern. No 3D scene yet — see the
+// placeholder left pane below. See
+// notes/adr/0007-badger-room-live-state.md.
+const badgerRoom = getBadgerRoom();
 
 // Stage 1 of the Live Hall View (see PROCESS.md): initialized from this
 // page load's real machine state. Deliberately no SSE wiring yet at
@@ -241,6 +252,38 @@ function weaselRoomConfirmedLabel(confirmedAt: number | null): string {
 // same kind of optional, never-fabricated signal (ADR 0006, Decision 1),
 // so "remaining time unknown" vs. "N min left" is the same two-way split.
 function weaselRoomRemainingLabel(expectedEndAt: number | null): { text: string; known: boolean } {
+  if (expectedEndAt === null) return { text: "remaining time unknown", known: false };
+  const minutes = Math.round((expectedEndAt - Date.now()) / 60_000);
+  return minutes > 0
+    ? { text: `${minutes} min left`, known: true }
+    : { text: "should be finishing", known: true };
+}
+
+// Badger Room's own status palette — identical shape to Otter Room's,
+// Rabbit Room's, and Weasel Room's: ADR 0007 independently confirmed the
+// same occupancy-only model (no activity/headcount) for this room's own
+// facts, not copied because the four rooms look alike.
+const BADGER_ROOM_STATUS_META: Record<BadgerRoomOccupancy, { label: string; icon: string; class: string }> = {
+  empty: { label: "Empty", icon: "✓", class: "status-available" },
+  occupied: { label: "Occupied", icon: "●", class: "status-in-use" },
+  unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+};
+
+// Mirrors weaselRoomConfirmedLabel() exactly — a separate copy, not a
+// shared function, same reasoning as every other facility's own copy
+// (different underlying row shape, nothing gained by forcing one function
+// to accept all of them).
+function badgerRoomConfirmedLabel(confirmedAt: number | null): string {
+  if (confirmedAt === null) return "never reported";
+  const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+  if (minutes < 1) return "confirmed just now";
+  return `confirmed ${minutes} min ago`;
+}
+
+// Mirrors weaselRoomRemainingLabel() — Badger Room's expectedEndAt is the
+// same kind of optional, never-fabricated signal (ADR 0007, Decision 1),
+// so "remaining time unknown" vs. "N min left" is the same two-way split.
+function badgerRoomRemainingLabel(expectedEndAt: number | null): { text: string; known: boolean } {
   if (expectedEndAt === null) return { text: "remaining time unknown", known: false };
   const minutes = Math.round((expectedEndAt - Date.now()) / 60_000);
   return minutes > 0
@@ -993,8 +1036,12 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
          dead CSS, not a live bug, and removing it is a separate, unrelated
          cleanup from this facility's own work. (Otter Room never had its
          own copy of this rule — its left pane went straight to a real 3D
-         scene without a placeholder stage.) */
-      .aa-room-placeholder {
+         scene without a placeholder stage.) Badger Room reuses it now,
+         the same "Stage: panel + placeholder, later a real scene" order
+         Otter/Rabbit/Weasel Room each went through — see
+         notes/adr/0007-badger-room-live-state.md. */
+      .aa-room-placeholder,
+      .badger-room-placeholder {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1009,17 +1056,19 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
          --status-good/in-use/unknown palette), but larger and
          unbordered — it's the one and only status this panel shows, not
          one badge among many machine cards, so it reads as a headline,
-         not a tag. Otter Room's, Rabbit Room's, and Weasel Room's panels
-         each reuse every one of these selectors (one more class added per
-         facility, not a separate copied block) — same visual language,
-         same underlying occupancy/empty/occupied/unknown palette, see
-         notes/adr/0004-otter-room-live-state.md,
-         notes/adr/0005-rabbit-room-live-state.md, and
-         notes/adr/0006-weasel-room-live-state.md. --- */
+         not a tag. Otter Room's, Rabbit Room's, Weasel Room's, and Badger
+         Room's panels each reuse every one of these selectors (one more
+         class added per facility, not a separate copied block) — same
+         visual language, same underlying occupancy/empty/occupied/
+         unknown palette, see notes/adr/0004-otter-room-live-state.md,
+         notes/adr/0005-rabbit-room-live-state.md,
+         notes/adr/0006-weasel-room-live-state.md, and
+         notes/adr/0007-badger-room-live-state.md. --- */
       .aa-room-summary,
       .otter-room-summary,
       .rabbit-room-summary,
-      .weasel-room-summary {
+      .weasel-room-summary,
+      .badger-room-summary {
         display: block;
         margin: 0 0 1rem;
         max-width: none;
@@ -1027,7 +1076,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       .aa-room-status,
       .otter-room-status,
       .rabbit-room-status,
-      .weasel-room-status {
+      .weasel-room-status,
+      .badger-room-status {
         display: flex;
         align-items: center;
         gap: 0.5em;
@@ -1037,34 +1087,39 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       .aa-room-status.status-available,
       .otter-room-status.status-available,
       .rabbit-room-status.status-available,
-      .weasel-room-status.status-available { color: var(--status-good); }
+      .weasel-room-status.status-available,
+      .badger-room-status.status-available { color: var(--status-good); }
       .aa-room-status.status-in-use,
       .otter-room-status.status-in-use,
       .rabbit-room-status.status-in-use,
-      .weasel-room-status.status-in-use { color: var(--status-in-use); }
+      .weasel-room-status.status-in-use,
+      .badger-room-status.status-in-use { color: var(--status-in-use); }
       .aa-room-status.status-unknown,
       .otter-room-status.status-unknown,
       .rabbit-room-status.status-unknown,
-      .weasel-room-status.status-unknown { color: var(--ink-muted); }
+      .weasel-room-status.status-unknown,
+      .badger-room-status.status-unknown { color: var(--ink-muted); }
       .aa-room-status-icon,
       .otter-room-status-icon,
       .rabbit-room-status-icon,
-      .weasel-room-status-icon { flex: none; }
+      .weasel-room-status-icon,
+      .badger-room-status-icon { flex: none; }
       .aa-room-activity {
         margin: 0.4rem 0 0;
         font-size: 1rem;
         font-weight: 600;
         color: var(--ink-secondary);
       }
-      /* Otter Room's, Rabbit Room's, and Weasel Room's remaining-time
-         lines reuse Laundry's own .remaining/.remaining.unknown-time rules
-         directly (see the markup below) rather than inventing a parallel
-         copy — it's the exact same "N min left" / "remaining time
-         unknown" concept. */
+      /* Otter Room's, Rabbit Room's, Weasel Room's, and Badger Room's
+         remaining-time lines reuse Laundry's own
+         .remaining/.remaining.unknown-time rules directly (see the
+         markup below) rather than inventing a parallel copy — it's the
+         exact same "N min left" / "remaining time unknown" concept. */
       .aa-room-confirmed,
       .otter-room-confirmed,
       .rabbit-room-confirmed,
-      .weasel-room-confirmed {
+      .weasel-room-confirmed,
+      .badger-room-confirmed {
         display: block;
         margin-top: 0.4rem;
       }
@@ -1083,14 +1138,16 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       .aa-room-freshness.aa-freshness--unknown { color: var(--ink-muted); font-style: italic; }
 
       /* Always visible — no details/summary click-to-reveal. AA Room,
-         Otter Room, Rabbit Room, and Weasel Room each have exactly one
-         reportable thing, unlike Laundry's ten separate machine cards
-         where collapsing each genuinely cuts clutter; hiding any one
-         facility's only form bought nothing but an extra click. */
+         Otter Room, Rabbit Room, Weasel Room, and Badger Room each have
+         exactly one reportable thing, unlike Laundry's ten separate
+         machine cards where collapsing each genuinely cuts clutter;
+         hiding any one facility's only form bought nothing but an extra
+         click. */
       .aa-room-report,
       .otter-room-report,
       .rabbit-room-report,
-      .weasel-room-report {
+      .weasel-room-report,
+      .badger-room-report {
         margin-top: 1rem;
       }
       .aa-room-report-label {
@@ -1409,7 +1466,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         <button type="button" class="facility-tab" data-facility="aa-room">AA Room</button>
         <button type="button" class="facility-tab" data-facility="otter-room">Otter Room</button>
         <button type="button" class="facility-tab" data-facility="rabbit-room">Rabbit Room</button>
-        <button type="button" class="facility-tab" disabled>Badger Room</button>
+        <button type="button" class="facility-tab" data-facility="badger-room">Badger Room</button>
         <button type="button" class="facility-tab" disabled>Rat Room</button>
         <button type="button" class="facility-tab" data-facility="weasel-room">Weasel Room</button>
       </nav>
@@ -1532,6 +1589,24 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             <section class="hall-view" aria-hidden="true" data-weasel-room={JSON.stringify(weaselRoom)}>
               <div class="hall-view-canvas" id="weasel-room-canvas"></div>
               <p class="hall-view-caption">Toad Hall — Weasel Room, live</p>
+            </section>
+          </div>
+
+          {/* Badger Room's left pane — deliberately a plain placeholder,
+              not a 3D scene: this stage is the practical panel + realtime
+              integration only (see
+              notes/adr/0007-badger-room-live-state.md). A real diorama is
+              later work, the same "practical panel first, real scene
+              later" order Otter Room/Rabbit Room/Weasel Room each went
+              through. No renderer-host.ts registration at all — the
+              generic facility-tab script below only toggles [hidden] on
+              .facility-view[data-facility], and facility-switch.ts's
+              selectHallFacility() already no-ops safely for any key with
+              nothing registered, so plain static markup is sufficient for
+              facility switching to work correctly with no 3D code. */}
+          <div class="facility-view" data-facility="badger-room" hidden>
+            <section class="hall-view badger-room-placeholder" aria-hidden="true">
+              <p>Badger Room visual coming next.</p>
             </section>
           </div>
         </div>
@@ -2015,6 +2090,91 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
               placeholder="minutes left (optional)"
               aria-label="Expected minutes remaining, optional"
               disabled={weaselRoom.occupancy !== "occupied"}
+            />
+            <button type="submit">Report</button>
+          </form>
+        </div>
+      </div>
+
+      {/* Badger Room's practical panel — same shape as Weasel Room's panel
+          above, reusing the exact same reporting semantics since ADR 0007
+          independently confirmed the same occupancy + optional
+          expectedEndAt model for this room's own facts (no activities, no
+          headcount, no freshness — see
+          notes/adr/0007-badger-room-live-state.md). Hidden by default;
+          the facility-tab script shows it only when Badger Room is
+          selected. No block-tabs: Badger Room is one room. */}
+      <div
+        class="facility-view badger-room-panel"
+        data-facility="badger-room"
+        hidden
+        data-badger-room={JSON.stringify(badgerRoom)}
+      >
+        <section class="summary badger-room-summary" aria-label="Badger Room status">
+          <div class:list={["badger-room-status", BADGER_ROOM_STATUS_META[badgerRoom.occupancy].class]}>
+            <span class="badger-room-status-icon" aria-hidden="true">{BADGER_ROOM_STATUS_META[badgerRoom.occupancy].icon}</span>
+            <span class="badger-room-status-label">{BADGER_ROOM_STATUS_META[badgerRoom.occupancy].label}</span>
+          </div>
+          {/* Always rendered, hidden when not occupied — same "stable node,
+              toggled, never built from scratch" shape as every other
+              facility's own .remaining paragraph. */}
+          <p
+            class:list={[
+              "remaining",
+              "badger-room-remaining",
+              badgerRoom.occupancy === "occupied" &&
+                badgerRoomRemainingLabel(badgerRoom.expectedEndAt).known === false &&
+                "unknown-time",
+            ]}
+            hidden={badgerRoom.occupancy !== "occupied"}
+          >
+            {badgerRoom.occupancy === "occupied" ? badgerRoomRemainingLabel(badgerRoom.expectedEndAt).text : ""}
+          </p>
+          <span class="confirmed badger-room-confirmed">{badgerRoomConfirmedLabel(badgerRoom.confirmedAt)}</span>
+        </section>
+
+        {/* Badger Room has exactly one reportable thing, same reasoning as
+            Weasel Room's own always-visible form. Only empty/occupied are
+            ever offered — unknown is never a reportable value (ADR 0007,
+            Decision 1). Reuses .aa-room-toggle/.aa-room-toggle-group's
+            exact pill styling, same shared component every other
+            facility's occupancy toggle already uses. */}
+        <div class="report badger-room-report">
+          <p class="aa-room-report-label">Update status</p>
+          {/* data-version kept in sync with every canonical state this
+              panel receives, same as every other facility's own form. The
+              minutes input mirrors Weasel Room's estimate field exactly —
+              the same simplest, fastest interaction, not a new time-picker
+              invented for this facility. See
+              notes/adr/0007-badger-room-live-state.md: no booking
+              calendar, no future reservation. */}
+          <form class="report-form badger-room-report-form" data-version={badgerRoom.version}>
+            <fieldset class="aa-room-toggle-group badger-room-occupancy" aria-label="Badger Room status">
+              <label class="aa-room-toggle">
+                <input type="radio" name="occupancy" value="empty" checked={badgerRoom.occupancy === "empty"} />
+                <span>Empty</span>
+              </label>
+              <label class="aa-room-toggle">
+                <input type="radio" name="occupancy" value="occupied" checked={badgerRoom.occupancy === "occupied"} />
+                <span>Occupied</span>
+              </label>
+            </fieldset>
+            {/* Disabled (and cleared, by the report script's sync
+                function) whenever occupancy isn't "occupied" — same
+                "never carry a stale value into the wrong kind of report"
+                discipline every other facility's own form already uses.
+                Capped at 240 (4 hours) client-side as a fast-feedback
+                mirror of the server's own real ceiling (ADR 0007,
+                Decision 2) — the server re-validates regardless, this is
+                just UX, not the actual guard. */}
+            <input
+              type="number"
+              name="minutes"
+              min="1"
+              max="240"
+              placeholder="minutes left (optional)"
+              aria-label="Expected minutes remaining, optional"
+              disabled={badgerRoom.occupancy !== "occupied"}
             />
             <button type="submit">Report</button>
           </form>
@@ -3438,6 +3598,203 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             const label = STATUS_META[(current as WeaselRoomState).occupancy]?.label ?? (current as WeaselRoomState).occupancy;
             alert(
               `Weasel Room changed since you last saw it — it's now reported as "${label}". ` +
+                "The panel shows that now; check it and report again if it's still wrong.",
+            );
+            return;
+          }
+
+          alert("couldn't save that report — try again");
+        });
+      }
+    </script>
+
+    {/* Badger Room — its own, separate state and script, same shape as
+        Otter Room's script: BadgerRoomState is deliberately not the
+        Machine or AaRoomState shape (no activities, no freshness — see
+        notes/adr/0007-badger-room-live-state.md), so this is its own
+        small "render canonical state into these DOM nodes" function.
+        Wired into the page's one shared SSE connection
+        (src/lib/live-stream.ts) from the start — no separate realtime
+        follow-up step, since this facility's backend already ships
+        realtime support. No 3D hook at all this stage — the left pane is
+        a plain placeholder (see the markup above), so there is no
+        applyBadgerRoomStateToScene() to call, unlike Otter/Rabbit/Weasel
+        Room's own scene hooks. */}
+    <script>
+      import { onBadgerRoomEvent, onOpen } from "../lib/live-stream.ts";
+
+      type BadgerRoomOccupancy = "empty" | "occupied" | "unknown";
+      interface BadgerRoomState {
+        occupancy: BadgerRoomOccupancy;
+        expectedEndAt: number | null;
+        confirmedAt: number | null;
+        version: number;
+      }
+
+      const STATUS_META: Record<BadgerRoomOccupancy, { label: string; icon: string; class: string }> = {
+        empty: { label: "Empty", icon: "✓", class: "status-available" },
+        occupied: { label: "Occupied", icon: "●", class: "status-in-use" },
+        unknown: { label: "Unknown", icon: "?", class: "status-unknown" },
+      };
+
+      // Mirrors confirmedLabel()/remainingLabel() elsewhere on this page —
+      // all need the client's current clock, so none can be shared
+      // directly across the server/client boundary; kept tiny and
+      // behaviourally identical instead of invented differently here.
+      function confirmedLabel(confirmedAt: number | null): string {
+        if (confirmedAt === null) return "never reported";
+        const minutes = Math.round((Date.now() - confirmedAt) / 60_000);
+        if (minutes < 1) return "confirmed just now";
+        return `confirmed ${minutes} min ago`;
+      }
+
+      function remainingLabel(expectedEndAt: number | null): { text: string; known: boolean } {
+        if (expectedEndAt === null) return { text: "remaining time unknown", known: false };
+        const minutes = Math.round((expectedEndAt - Date.now()) / 60_000);
+        return minutes > 0
+          ? { text: `${minutes} min left`, known: true }
+          : { text: "should be finishing", known: true };
+      }
+
+      const panel = document.querySelector<HTMLElement>(".badger-room-panel");
+      const statusEl = panel?.querySelector<HTMLElement>(".badger-room-status");
+      const statusIconEl = panel?.querySelector<HTMLElement>(".badger-room-status-icon");
+      const statusLabelEl = panel?.querySelector<HTMLElement>(".badger-room-status-label");
+      const remainingEl = panel?.querySelector<HTMLElement>(".badger-room-remaining");
+      const confirmedEl = panel?.querySelector<HTMLElement>(".badger-room-confirmed");
+      const form = panel?.querySelector<HTMLFormElement>(".badger-room-report-form");
+      const occupancyRadios = form
+        ? Array.from(form.querySelectorAll<HTMLInputElement>('input[name="occupancy"]'))
+        : [];
+      const minutesInput = form?.querySelector<HTMLInputElement>('input[name="minutes"]') ?? null;
+      function occupancyValue(): string | undefined {
+        return occupancyRadios.find((r) => r.checked)?.value;
+      }
+
+      // Applies Badger Room's canonical state to the panel — used for the
+      // initial server-rendered state (called once below), this
+      // browser's own PATCH response (success or 409 conflict alike),
+      // and any other session's push over SSE. Mirrors every other
+      // facility's own apply*Update(): one canonical update path, never a
+      // second client-side state model to drift from the server's.
+      function applyBadgerRoomUpdate(room: BadgerRoomState): void {
+        if (!statusEl || !statusIconEl || !statusLabelEl || !remainingEl || !confirmedEl || !form) {
+          return;
+        }
+
+        const meta = STATUS_META[room.occupancy];
+        statusEl.className = `badger-room-status ${meta.class}`;
+        statusIconEl.textContent = meta.icon;
+        statusLabelEl.textContent = meta.label;
+
+        if (room.occupancy === "occupied") {
+          const remaining = remainingLabel(room.expectedEndAt);
+          remainingEl.hidden = false;
+          remainingEl.classList.toggle("unknown-time", !remaining.known);
+          remainingEl.textContent = remaining.text;
+        } else {
+          remainingEl.hidden = true;
+          remainingEl.textContent = "";
+        }
+
+        confirmedEl.textContent = confirmedLabel(room.confirmedAt);
+
+        form.dataset.version = String(room.version);
+      }
+
+      // Disables (and clears) the minutes input whenever occupancy isn't
+      // "occupied" — the direct guarantee that an Empty report never
+      // carries a leftover estimate (ADR 0007, Decision 2: expectedEndAt
+      // is per-observation, never inherited). Recomputed from the full
+      // current selection every time anything changes, same discipline
+      // every other facility's own syncMinutesInput() uses.
+      function syncMinutesInput(): void {
+        if (!minutesInput) return;
+        const occupied = occupancyValue() === "occupied";
+        minutesInput.disabled = !occupied;
+        if (!occupied) minutesInput.value = "";
+      }
+
+      if (panel) {
+        const initial = JSON.parse(panel.dataset.badgerRoom!) as BadgerRoomState;
+        applyBadgerRoomUpdate(initial);
+
+        for (const radio of occupancyRadios) radio.addEventListener("change", syncMinutesInput);
+        syncMinutesInput();
+
+        // A push from ANY session's report or decay transition, over the
+        // page's one shared SSE connection. applyBadgerRoomUpdate() only
+        // ever writes the display elements and never touches
+        // occupancyRadios/minutesInput, so a resident mid-way through
+        // choosing their own report is never overwritten by someone
+        // else's — the same property every other facility's report form
+        // already has.
+        onBadgerRoomEvent((room) => {
+          applyBadgerRoomUpdate(room);
+        });
+
+        // (Re)connect re-fetches current Badger Room state — the same
+        // "a (re)connection's own read is itself a qualifying read"
+        // principle every other facility's onOpen() handler already
+        // relies on.
+        onOpen(() => {
+          fetch("/api/badger-room")
+            .then((res) => res.json() as Promise<BadgerRoomState>)
+            .then(applyBadgerRoomUpdate);
+        });
+
+        form?.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const occupancy = occupancyValue()!;
+          // Only read when occupied AND the input is actually enabled —
+          // mirrors every other facility's own "checked AND
+          // currently-enabled" guard, so a stale value sitting in a
+          // disabled input can never be submitted as part of an Empty
+          // report even if syncMinutesInput() somehow hadn't cleared it.
+          const minutesRaw = occupancy === "occupied" && minutesInput && !minutesInput.disabled
+            ? minutesInput.value
+            : "";
+          const minutes = minutesRaw === "" ? null : Number(minutesRaw);
+          const ifVersion = Number(form!.dataset.version);
+
+          // No reporterId here, same as every other facility's report
+          // script — the actor is resolved server-side from this
+          // browser's session cookie
+          // (notes/adr/0002-identity-and-permissions.md). expectedEndAt
+          // is only ever sent when occupied and a minute estimate was
+          // actually given — an Empty report, or an occupied report with
+          // no estimate, omits the field entirely, which the server
+          // treats as "no estimate for this report" and stores as null
+          // (ADR 0007, Decision 2: never inherited from a prior report).
+          const res = await fetch("/api/badger-room", {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              occupancy,
+              ifVersion,
+              expectedEndAt:
+                occupancy === "occupied" && minutes !== null ? Date.now() + minutes * 60_000 : undefined,
+            }),
+          });
+
+          if (res.ok) {
+            const room = (await res.json()) as BadgerRoomState;
+            applyBadgerRoomUpdate(room);
+            syncMinutesInput();
+            return;
+          }
+
+          if (res.status === 409) {
+            // Same conflict UX as every other facility's report script:
+            // say so plainly, show the state the server actually holds,
+            // let the resident decide whether to report again — never a
+            // silent overwrite, never a silent reload.
+            const { current } = await res.json();
+            applyBadgerRoomUpdate(current as BadgerRoomState);
+            syncMinutesInput();
+            const label = STATUS_META[(current as BadgerRoomState).occupancy]?.label ?? (current as BadgerRoomState).occupancy;
+            alert(
+              `Badger Room changed since you last saw it — it's now reported as "${label}". ` +
                 "The panel shows that now; check it and report again if it's still wrong.",
             );
             return;
