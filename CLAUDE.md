@@ -69,22 +69,36 @@ let this file, the README's argument, and the code drift apart.
   build account creation, passwords, or verification of who a person
   actually is without a new decision record. See
   `notes/adr/0002-identity-and-permissions.md`.
-- **Otter Room's, Rabbit Room's, Weasel Room's, and Badger Room's
-  occupied decay is each `min(expectedEndAt, confirmedAt + 4h)`, not the
-  Laundry dryer's if/else fallback shape.** Each room's 4-hour ceiling is
-  a real, already-existing Toad Hall norm confirmed independently for
-  that specific room (residents already don't use any of the four rooms
-  past four hours) and always applies, whether or not a resident
-  supplied an estimate — it is not a provisional placeholder standing in
-  for missing data the way `UNTIMED_IN_USE_DECAY_MS` is for an untimed
-  dryer, and must never be "simplified" into that two-branch shape. This
-  is not a claim that every future room shares this contract — each new
-  facility re-earns its own decay shape from its own facts (see
+- **Otter Room's, Rabbit Room's, Weasel Room's, Badger Room's, and Rat
+  Room's occupied decay is each `min(expectedEndAt, confirmedAt + 4h)`,
+  not the Laundry dryer's if/else fallback shape.** Each room's 4-hour
+  ceiling is a real, already-existing Toad Hall norm confirmed
+  independently for that specific room: for Otter/Rabbit/Weasel/Badger
+  Room, residents already don't use that *room* past four hours; for Rat
+  Room, a resident already doesn't use a *seat* past four hours — five
+  independently-confirmed real community facts, not one room-level norm
+  stretched to cover a sixth case. All five always apply, whether or not
+  a resident supplied an estimate — it is not a provisional placeholder
+  standing in for missing data the way `UNTIMED_IN_USE_DECAY_MS` is for
+  an untimed dryer, and must never be "simplified" into that two-branch
+  shape. For Rat Room specifically, this ceiling applies **per seat**
+  (A–J), not to a single shared room-row the way the other four rooms'
+  own ceiling does — there is no room-level `confirmedAt`/`expectedEndAt`
+  for Rat Room at all, only each seat's own. This is not a claim that
+  every future room shares this contract — each new facility re-earns its
+  own decay shape from its own facts (see
   `notes/adr/0004-otter-room-live-state.md`,
   `notes/adr/0005-rabbit-room-live-state.md`,
-  `notes/adr/0006-weasel-room-live-state.md`, and
-  `notes/adr/0007-badger-room-live-state.md`, each Decision 2); it only
-  happens to be settled, independently, for these four rooms so far.
+  `notes/adr/0006-weasel-room-live-state.md`,
+  `notes/adr/0007-badger-room-live-state.md`, and
+  `notes/adr/0008-rat-room-live-state.md`, each Decision 2 or 3); it only
+  happens to be settled, independently, for these five rooms so far.
+- **Rat Room's room-level 3D visual and panel summary are derived from
+  its ten seats' own states on every read and must never be persisted as
+  a second, room-level fact.** A stored room-level occupancy flag would
+  drift from what the ten seats actually say and raise an unanswerable
+  "which one is authoritative" question — see
+  `notes/adr/0008-rat-room-live-state.md`, Decision 4.
 
 ## Persistence
 

@@ -170,6 +170,37 @@ Machine states (confirmed, not invented edge cases):
   - computers and printing;
   - primarily a study space.
 
+  **Confirmed and implemented (2026-10-31):** Toad Live's seventh
+  live-state facility, after Laundry, AA Room, Otter Room, Rabbit Room,
+  Weasel Room, and Badger Room — see
+  `notes/adr/0008-rat-room-live-state.md`. Structurally distinct from
+  every facility since Laundry: the room's own real question isn't "is
+  anyone in here" but "how many of its seats are free right now," so
+  live state attaches to **ten independently-reportable product-model
+  seats, A through J** — fixed seed resources, not something residents
+  create or the app grows on its own — rather than one room-level
+  occupancy row. Each seat's own state is `empty` / `occupied` /
+  `unknown`, with an optional resident-estimated `expectedEndAt` and its
+  own independent `confirmedAt`/`version` (no shared room-level
+  counter), mirroring every other occupancy room's per-observation
+  shape, not `Machine`'s equipment-condition shape — no `out-of-order`,
+  no `startedAt`. `empty` decays to `unknown` after 15 minutes, this
+  room's own freshness judgement given it has no reservation mechanism
+  of any kind (not even a paper sign-up sheet); `occupied` decays at
+  `min(expectedEndAt, confirmedAt + 4h)`, the same 4-hour figure
+  confirmed as a real, already-existing Toad Hall norm, here stated
+  naturally at the per-seat grain from the start. The room's one 3D
+  visual and the panel's "N seats confirmed free · N unknown" summary
+  are both a pure function of the ten seats' current `occupancy` values
+  — any seat occupied wins outright, else all-empty, else the honest
+  unknown middle case — computed fresh every time and never persisted as
+  a second, room-level fact of its own. No printer status or queue, no
+  booking/reservation of any kind, no activity taxonomy, no headcount,
+  and no mapping from any specific seat A–J to a specific 3D
+  workstation or decorative figure — the same scope boundary every other
+  implemented facility keeps, applied here per seat rather than per
+  room.
+
 - **Weasel Room — Music Room**
   - guitar and keyboard;
   - a paper sign-up sheet on the door, not a digital booking system.
@@ -250,8 +281,8 @@ For example:
 - facility names and locations are stable information.
 
 Several facility-specific expiry rules are now decided — AA Room, Otter
-Room, Rabbit Room, Weasel Room, and Badger Room each have their own
-confirmed decay model (see §3 and §10). The broader freshness policy
+Room, Rabbit Room, Weasel Room, Badger Room, and Rat Room each have their
+own confirmed decay model (see §3 and §10). The broader freshness policy
 remains partially open: in particular, Laundry's own `available`/
 `unknown` lifetimes and its provisional untimed in-use window are not yet
 finalized (§3, §10).
@@ -435,18 +466,18 @@ The following should be interrogated before they are fixed:
   confirmed as non-expiring — see §3);
 - whether historical state is useful or only the present matters;
 - how many *non-laundry* rooms should exist in the first full version —
-  **partially decided**: AA Room, Otter Room, Rabbit Room, Weasel Room,
-  and Badger Room are all now confirmed and implemented (§3); Rat remains
-  open;
+  **decided**: AA Room, Otter Room, Rabbit Room, Weasel Room, Badger
+  Room, and Rat Room are all now confirmed and implemented (§3) — all
+  seven facilities named in this file's own §3 are implemented, with no
+  facility left open;
 - whether rooms are manually updated, timer-driven or both — **decided
-  for every implemented facility so far**: manually reported, with lazy
+  for every implemented facility**: manually reported, with lazy
   read-triggered decay back toward `unknown` (never a timer or a
   connection event) — see §3's Laundry/AA Room/Otter Room/Rabbit Room/
-  Weasel Room/Badger Room entries;
-- the role of booking information, if any — **decided for Otter Room,
-  Rabbit Room, Weasel Room, and Badger Room**: none. Live state only, no
-  booking calendar, no future reservation (§3). Still open for any room
-  not yet implemented;
+  Weasel Room/Badger Room/Rat Room entries;
+- the role of booking information, if any — **decided for every
+  occupancy-model room (Otter, Rabbit, Weasel, Badger, Rat)**: none.
+  Live state only, no booking calendar, no future reservation (§3);
 - the scope of community notes;
 - how the 3D / animated layer should work;
 - which claims about "good" should become automated checks.

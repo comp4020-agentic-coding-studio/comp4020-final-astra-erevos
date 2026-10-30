@@ -1,27 +1,31 @@
 # Toad Live
 
 Toad Live is a live status board for Toad Hall's shared spaces, kept
-current by whoever last walked past, not sensors. Six facilities carry
+current by whoever last walked past, not sensors. Seven facilities carry
 real shared state today: Laundry (five rooms, ten machines), the Anton
 Aalbers (AA) Room common room, the Otter Room study room, the Rabbit Room
-group-study/shared-meal room, the Weasel Room music practice room, and
-the Badger Room formal meeting/interview room; the rest of the Hall is
-named in the navigation as where this goes next, not shipped. Laundry
-proved the shape; AA Room, Otter Room, Rabbit Room, Weasel Room, and
-Badger Room each earned their own state model from what's actually true
-about that specific room, not a template copied from Laundry's — Rabbit
-Room, for instance, really is used for two different things, group study
-and shared meals, but its live state only ever records whether the room
-is occupied, never which of the two is happening, since that distinction
-has no decision-relevant value to a resident checking the app. Weasel
-Room is the same story with guitar and keyboard: two real instruments,
-one occupancy field, never a record of which one is in use. Badger Room
-pushes that same question hardest — formal meetings, interviews, special
-study, and organised activities like Toad's Table are genuinely several
-different things, and the room is formal enough that it might seem to
-need a booking system, but its live state still only ever records
-whether it's occupied and, optionally, when a resident expects to
-finish.
+group-study/shared-meal room, the Weasel Room music practice room, the
+Badger Room formal meeting/interview room, and the Rat Room computer
+room. Laundry proved the shape; every room since earned its own state
+model from what's actually true about that specific room, not a template
+copied from Laundry's — Rabbit Room, for instance, really is used for two
+different things, group study and shared meals, but its live state only
+ever records whether the room is occupied, never which of the two is
+happening, since that distinction has no decision-relevant value to a
+resident checking the app. Weasel Room is the same story with guitar and
+keyboard: two real instruments, one occupancy field, never a record of
+which one is in use. Badger Room pushes that same question hardest —
+formal meetings, interviews, special study, and organised activities like
+Toad's Table are genuinely several different things, and the room is
+formal enough that it might seem to need a booking system, but its live
+state still only ever records whether it's occupied and, optionally, when
+a resident expects to finish. Rat Room is the first facility since
+Laundry to need a different shape entirely: the computer room is modeled
+as **ten independently-reportable seat resources**, not one room-level
+occupancy fact, because the question that actually matters there is "how
+many seats are free," not "is anyone in here" — the UI answers exactly
+that, and the room's own 3D state is derived from the ten seats'
+observations, never a second, separately-tracked room-level fact.
 
 ## Why this, and why for Toad Hall specifically
 
@@ -81,11 +85,11 @@ Verified resident identity, and any booking or reservation system — a
 status layer, not a scheduler. Otter Room's, Rabbit Room's, Weasel
 Room's, and Badger Room's own paper sign-up sheets on the door are
 real-world artifacts Toad Live deliberately doesn't digitize; each shows
-its room's state right now, never a future reservation. Rat Room isn't
-built yet, though the workbench reserves its place so adding it later is
-new server-backed state, not a redesign. Real-time delivery and
-concurrency were decided at Crit 9, identity at Crit 10, both verified
-live. Presence stays out of scope.
+its room's state right now, never a future reservation. Rat Room has no
+sign-up sheet to decline digitizing in the first place — no reservation
+mechanism of any kind exists for it, paper or otherwise. Real-time
+delivery and concurrency were decided at Crit 9, identity at Crit 10,
+both verified live. Presence stays out of scope.
 
 ## Enforced vs. judged
 

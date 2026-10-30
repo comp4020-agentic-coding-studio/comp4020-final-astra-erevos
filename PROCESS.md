@@ -483,12 +483,119 @@ the Otter Room/Rabbit Room whiteboard z-fighting fix was separately
 confirmed live. No production-only product bug surfaced. See the ADR's
 own Verification section for the full detail.
 
+## Rat Room: the resource granularity question comes back, and figures need a place to sit
+
+Rat Room's own ADR
+([`notes/adr/0008-rat-room-live-state.md`](notes/adr/0008-rat-room-live-state.md))
+is the first facility since Laundry to change *what kind of resource*
+this app's state model attaches to, and the milestone's real lessons are
+mostly about that change, not another re-derived decay number.
+
+**1. Resource granularity changed again, for a reason distinct from
+Laundry's own.** Otter, Rabbit, Weasel, and Badger Room are each one
+shared space with one occupancy fact. Rat Room's own question isn't "is
+anyone in here" — with ten seats, that's almost always true during
+normal hours and tells a resident nothing useful. It's "how many of the
+ten seats are free for me, specifically." A single room-level `occupied`
+flag cannot distinguish one occupied seat from ten, so it cannot answer
+that question at all — a real information loss, not a style preference.
+The fix is ten independent seat resources, each its own
+`occupancy`/`expectedEndAt`/`confirmedAt`/`version` — structurally
+Laundry's sibling in multiplicity, but not in shape: no `out-of-order`,
+no `startedAt`, since a seat's occupancy, not an appliance's physical
+condition, is the fact that matters here.
+
+**2. Approximate reality, exact product model, and the two were never
+conflated.** The real-world fact given for this room is *approximately*
+ten computers/seats — not the same recounted certainty `CLAUDE.md` states
+for Laundry's five locations. Toad Live's own product decision is still
+exactly ten fixed, reportable slots, A through J. The ADR says this
+plainly rather than dressing up a product choice as a more precise
+physical fact than was ever actually confirmed.
+
+**3. One source of truth, derived, never doubled.** The room's own 3D
+visual and the panel's headline both come from the same
+`summarizeRatRoomSeats()`: any seat occupied → `occupied`; all ten
+`empty` → `empty`; otherwise → `unknown`. Nothing about this is stored a
+second time at the room level — a second stored flag could drift from
+what the ten seats actually say, the exact two-sources-of-truth problem
+every derived value in this app exists to avoid.
+
+**4. Summary honesty, sharpened by having real counts to work with.**
+Only confirmed-`empty` seats count as free; `unknown` seats are named
+alongside the free count ("6 seats confirmed free · 2 unknown"), never
+silently folded into either bucket. Seat occupancy also still isn't a
+headcount — one occupied seat says nothing about how many people are
+using it.
+
+**5. Infrastructure maturity showed up as the absence of a repeat
+incident, not a new fix.** `rat-room.ts`/`rat-room-db.ts` followed
+`91167bd`'s pure-logic/`-db.ts` split from the first line, so becoming
+the *sixth* `*-decay.test.ts` file never came close to reintroducing the
+SQLite-lock race Rabbit Room's own arrival once caused — verified
+directly, all six decay specs run in parallel repeatedly with zero lock
+errors. The seventh SSE event needed a genuine, new piece of code,
+though, not just another name: every prior event payload carried either
+a `machine` or a `room`, so `src/pages/api/stream.ts`'s dispatch logic
+went from a two-way to a real three-way distinction
+(`machine`/`rat-room`-`seat`/`room`) — a real shape difference in the
+discriminated union, not another facility-count patch to an existing
+pattern.
+
+**6. A visual polish request surfaced a real SSR/client-render
+consistency bug, not just a CSS problem.** The summary headline wrapped
+mid-phrase instead of between whole phrases. The server-rendered markup
+already used a two-span structure so each span could carry its own
+`white-space: nowrap` — but the client's original `summaryLabel()`
+replaced the entire headline via `textContent` on the very first
+SSE-driven update (which fires immediately, for all ten seats, on every
+page load), destroying that structure before a resident ever saw it
+survive. Rebuilding the two spans dynamically via `document.createElement`
+still wasn't enough on its own: Astro's scoped CSS only applies to
+elements present in the template at *build* time, so freshly-created
+spans never receive the `data-astro-cid-*` attribute the original
+build-time spans had — the same bug class this codebase had already
+documented for `overlay.ts`'s `hall-hover-card`/`hall-focus-panel`. The
+fix, `renderSummary()` rebuilding a stable two-span structure every call
+plus a small dedicated `is:global` rule for those two span classes, is a
+structural fix, not a styling tweak — worth remembering the next time a
+"just fix the wrapping" request turns out to be a markup-lifecycle bug
+in disguise.
+
+**7. The 3D aggregate boundary held, but needed a real-person
+correction.** The ten decorative workstations built in Stage 1 are a
+decorative approximation of "approximately ten computers," never a
+rendering of the product's A–J seat slots — no workstation is ever
+labelled or indexed to a seat. Stage 2's occupied-state figures (a fixed
+2 seated + 1 standing) never vary in count with how many seats are
+actually occupied — confirmed by screenshotting "only seat A occupied,"
+"only seat H occupied," and "five seats occupied" and finding them
+visually identical. The boundary held throughout, but the first
+implementation of where those figures physically sat was still wrong:
+they were placed in the room's genuinely-open central floor area,
+correct by the "never implies a specific seat" rule but read, on a real
+screenshot, as people standing on open floor rather than using a
+computer lab. The fix placed the same fixed, anonymous figures at (or
+just beside) two specific, already-built workstations instead — still no
+seat-to-workstation mapping, since no workstation is ever labelled, just
+a visually grounded version of the same decorative aggregate. The
+lesson repeats Otter Room's and Badger Room's own: a geometrically
+correct, rule-following scene can still look wrong in a way only a real
+screenshot catches, and the fix here was a placement correction, not a
+rule change.
+
+Shipped as three separate, independently-reviewed commits — backend,
+practical panel, 3D scene — the same staged-commit discipline every
+facility since Otter Room has used. Not yet shipped to Fly: this
+milestone stops at local verification, with production smoke testing
+deferred to its own close-out step, the same deferral Badger Room's own
+milestone made.
+
 ## What's still ahead
 
 The broader freshness policy — `available`/`unknown` lifetimes, the
 provisional 12-hour window — stays open pending real cycle-time data,
 tracked in `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. Verified
 resident identity is a possible later upgrade, not a current gap.
-Presence remains out of scope. Badger Room awaits production shipping;
-Rat Room remains unimplemented and open for later Final Project scope
-decisions — not permanently out of scope, just not yet interrogated.
+Presence remains out of scope. All seven facilities are now implemented
+locally; Rat Room alone still awaits production shipping.

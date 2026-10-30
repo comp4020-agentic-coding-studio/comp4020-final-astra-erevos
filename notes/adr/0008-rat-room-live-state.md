@@ -1,10 +1,15 @@
 # ADR 0008: Rat Room's shared live state
 
-**Status**: Decided — not yet implemented. This ADR fixes the state
-model, statuses, and decay rules for Toad Live's seventh facility before
-any schema, API, or UI work begins, the same order ADR
-0001/0002/0003/0004/0005/0006/0007 each used (see `PROCESS.md`'s
-"Rewritten each time the project's shape genuinely changed" convention).
+**Status**: Implemented and verified locally — production verification
+pending. This ADR fixed the state model, statuses, and decay rules for
+Toad Live's seventh facility before any schema, API, or UI work began,
+the same order ADR 0001/0002/0003/0004/0005/0006/0007 each used (see
+`PROCESS.md`'s "Rewritten each time the project's shape genuinely
+changed" convention). Backend, practical panel, and 3D scene have since
+shipped as three separate commits and been verified against this ADR's
+own decisions — see the Verification section below for what was actually
+run, and `PROCESS.md`'s own Rat Room entry for what the milestone taught
+beyond this document's frozen decisions.
 
 **This ADR's conclusion looks structurally different from every room ADR
 since AA Room (0003–0007), and that difference is the point.** Otter
@@ -572,30 +577,166 @@ prior room's own Decision on rejected fields already made — if printer
 queueing or seat booking ever becomes a real, stated need, that is a new
 decision with its own ADR, not a default this one quietly assumes.
 
-## Verification plan (not yet run — nothing is implemented)
+## Verification (completed — local only, production verification pending)
 
-Mirroring every prior room ADR's own verification plan, widened for
-per-seat multiplicity:
+Run across three staged, independently-reviewed commits (backend →
+practical panel → 3D), mirroring every prior room ADR's own staged
+verification but widened throughout for per-seat multiplicity.
 
-- automated: a persistence test per seat; `ifVersion`/409 conflict
-  coverage confirming two different seats' reports never conflict with
-  each other while two reports to the *same* seat do; a `PATCH`
-  rejection test for `occupancy: "unknown"`; rejection tests for
-  `expectedEndAt` beyond 4 hours and at-or-before `now`; a rejection test
-  for `expectedEndAt` alongside `occupancy: "empty"`; a no-inheritance
-  test; unit tests for the decay function's three branches against
-  constructed timestamps, following the established throwaway-database
-  technique, run independently per seat; a unit test suite for
-  `summarizeRatRoomSeats()` covering all three precedence branches
-  (any-occupied wins regardless of other seats' states; all-empty; the
-  no-occupied-some-unknown honest-middle case) and the exact
-  confirmed-free-vs-unknown counting rule; identity/permission tests; an
-  SSE test confirming an already-open stream receives `event: rat-room`
-  carrying the correct seat's own id, for whichever single seat was
-  reported, with the other nine seats' own state undisturbed.
-- manual, real browser: the same Playwright-based verification every
-  prior room's backend/panel/3D stages used, with extra attention to
-  cross-seat independence (reporting seat C never visibly affects seat
-  F's own card) and to the summary line's honesty under a deliberately
-  constructed mixed empty/occupied/unknown combination across the ten
-  seats, not just the all-empty or all-occupied extremes.
+**Backend** — 49 new automated tests (25 in `spec/rat-room.test.ts`, 18
+in `spec/rat-room-decay.test.ts`, 6 in `spec/rat-room-summary.test.ts`),
+bringing the project total to **261/261**:
+
+- all ten fixed product-model seats A–J present and independently
+  addressable from seed;
+- `seat UNIQUE` enforced at the schema level, not merely by the seed
+  step;
+- the frozen logical route `GET`/`PATCH /api/rat-room/:seat` resolves by
+  seat letter, never the composite row `id`;
+- an invalid `:seat` value (not one of A–J, or the composite id) is
+  rejected `404`;
+- per-seat persistence: a report to one seat survives an independent
+  later read;
+- same-seat optimistic concurrency: a stale `ifVersion` on a given seat
+  is rejected `409` with that seat's current canonical state;
+- different-seat independence: two reports targeting two different seats
+  never conflict with each other, and a stale write to one seat is never
+  validated by a different seat's own version having advanced;
+- `occupancy: "unknown"` rejected on `PATCH` — not a reportable value;
+- `expectedEndAt` bounds enforced (rejected beyond 4 hours or at-or-before
+  `now`) and rejected entirely alongside `occupancy: "empty"`;
+- no inheritance: an `occupied` report omitting `expectedEndAt` always
+  stores `NULL`, even over a row holding an earlier report's estimate;
+- all three decay branches (`empty` → `unknown` at 15 minutes; `occupied`
+  with no estimate → `unknown` at 4 hours; `occupied` with an estimate →
+  `unknown` at `min(expectedEndAt, confirmedAt + 4h)`), evaluated
+  independently per seat;
+- reporting one seat mutates and broadcasts only that seat's own row —
+  the other nine are never touched by a write or a broadcast triggered
+  by it;
+- `summarizeRatRoomSeats()` covers all three precedence branches (any
+  occupied wins; all ten empty; the honest no-occupied-some-unknown
+  middle case) plus exact count verification, including that `unknown`
+  seats are never counted as confirmed-free;
+- identity/permission tests: a client-asserted actor field on a Rat Room
+  report is rejected, the same as every other facility (ADR 0002);
+- an SSE test confirms an already-open stream receives the seventh named
+  event, `event: rat-room`, carrying exactly the reported seat's own
+  state, with the other nine seats' state undisturbed in the payload and
+  in the store.
+
+**SQLite isolation** — the `91167bd` pure-logic/`-db.ts` wiring split
+(see `PROCESS.md`'s "A known flake becomes a deterministic blocker" entry)
+was followed for Rat Room from its first line, making it the **sixth**
+`*-decay.test.ts` file in the parallel mix alongside AA Room, Otter Room,
+Rabbit Room, Weasel Room, and Badger Room. Verified directly: all six
+decay spec files run together, in parallel, repeatedly, with zero
+`database is locked` errors; a plain static `import` of `rat-room.ts`
+(the pure logic module) creates no real database connection and no file
+side effect at all, confirmed the same way every prior room's own module
+split was confirmed.
+
+**Practical panel** — real-browser (Playwright, headless Chromium)
+verification covered: all ten A–J seat cards rendering and updating
+independently; the summary headline showing `N seats confirmed free`
+alone when no seat is `unknown`, or with a trailing `· N unknown` when at
+least one is; the initial all-`unknown` seed state rendering correctly
+on first load; a deliberately constructed mixed combination (6 empty / 2
+occupied / 2 unknown) read correctly off the panel; reporting one seat's
+occupancy (optionally with an estimate) updating only that seat's own
+card; a stale `ifVersion` producing a `409` that refreshes only the
+targeted seat's card, leaving every other seat's card untouched; a direct
+`PATCH` attempting `occupancy: "unknown"` rejected `400`; two independent
+browser sessions each seeing the other's report arrive via SSE within
+about a second; the SSE listener updating only the one seat named in
+each `event: rat-room` payload; a forced reconnect re-fetching all ten
+seats individually (`GET /api/rat-room/:seat` for each of A–J, since no
+single "list all seats" route exists); both desktop and mobile viewport
+widths; zero genuine console/page errors across every run (expected
+`409`/`400` responses from deliberately-malformed test requests
+excluded).
+
+One real frontend bug was found and fixed during this stage's own visual
+polish pass, not merely a CSS adjustment — see `PROCESS.md`'s Rat Room
+entry, "Frontend bug from visual polish," for the full account: the
+server-rendered summary headline used a two-span DOM structure so each
+span could carry its own `white-space: nowrap`, but the client's first
+`summaryLabel()` implementation overwrote the entire headline via
+`textContent` on the very first SSE-driven update (which fires
+immediately for all ten seats on page load) — destroying that structure
+on effectively every real page view. Rebuilding the two spans
+dynamically via `document.createElement` still didn't fix it on its own:
+Astro's scoped CSS only applies to elements present in the template at
+build time, so the freshly-created spans never received the
+`data-astro-cid-*` attribute the original build-time spans had — the
+same bug class already documented in this codebase for `overlay.ts`'s
+`hall-hover-card`/`hall-focus-panel`. The fix was `renderSummary()`,
+which rebuilds the same stable two-span structure on every call, paired
+with a small, dedicated `is:global` style block (kept separate from the
+existing cyber/HUD-themed global block) for the two dynamically-created
+span classes.
+
+**3D** — Stage 1 (static shell) and Stage 2 (occupancy-driven look) each
+verified separately against a real browser before the next began, the
+same staged order every prior room's own 3D work used:
+
+- Stage 1: the wide, shallow rectangular room (clearly wider than deep,
+  unlike every prior room); the door threshold in the south-west corner;
+  the printer (fixed furniture only, no status/queue indicator) in the
+  north-west corner; desks lining most of the remaining perimeter walls;
+  the room's own open central area left genuinely clear; no
+  workstation-to-seat A–J mapping anywhere in the geometry or its
+  comments. An initial rotation-sign error — the west- and east-wall
+  workstations' `rotation.y` signs were backwards, which would have
+  faced each desk's back away from its own wall rather than flush
+  against it — was caught and fixed via direct Three.js
+  `Group`/`localToWorld` numerical verification of world-space
+  coordinates *before* any screenshot was taken, not discovered visually.
+- Stage 2: the 3D scene's only input is the already-derived room
+  `visual` from `summarizeRatRoomSeats()` — never an individual seat's
+  own state, never `occupiedCount`/`emptyCount`/`unknownCount` directly,
+  and no persisted room-level occupancy of its own. `empty` shows the
+  Stage 1 shell with no figures; `occupied` shows a fixed, small set of
+  decorative figures (2 seated + 1 standing) that never varies in count
+  with how many seats are actually occupied; `unknown` shows no figures,
+  with the full room structure desaturated/dimmed, the same visual
+  language Otter/Rabbit/Weasel/Badger Room's own `unknown` state already
+  uses. A first implementation placed the occupied-state figures in the
+  room's open central floor area, deliberately clear of every
+  workstation — correct by this ADR's own "never implies a specific
+  seat" rule, but a real-person screenshot review judged it visually
+  wrong: the figures read as standing on open floor rather than using a
+  computer room. Corrected, without creating any seat-to-workstation
+  mapping, by fixing the two seated figures' and one standing figure's
+  positions to sit at (or just beside) two specific, already-built,
+  anonymous workstations — a fixed decorative choice, numerically
+  verified against those workstations' own chair position and facing,
+  never derived from which real seat is occupied. Specific mixed-state
+  combinations were verified directly, not only the all-empty/all-
+  occupied extremes: 9 empty + 1 unknown (0 occupied) → panel "9 seats
+  confirmed free · 1 unknown," derived visual `unknown`, no figures,
+  dimmed; 6 empty + 2 occupied + 2 unknown → panel "6 seats confirmed
+  free · 2 unknown," derived visual `occupied` (occupied correctly wins
+  precedence over unknown in both the panel and the scene), full-
+  brightness fixed occupied figures. Three different occupied-seat
+  combinations — only seat A, only seat H, and five seats (A, C, E, G,
+  I) occupied — were screenshotted and visually compared, confirming the
+  figure count and positions never vary with which or how many of the
+  ten seats are actually occupied. `expectedEndAt`'s presence or absence
+  on an occupied seat was confirmed to produce no scene difference at
+  all. A full `occupied → empty → unknown → occupied` cycle was
+  screenshotted at each step and showed zero residue (no stray figures,
+  no leftover dim/desaturation carried into the next state). Reduced
+  motion was verified by screenshotting an occupied scene twice, 1.5
+  seconds apart, under `prefers-reduced-motion: reduce`: the two frames
+  were byte-identical while still showing the correct occupied figures
+  in full pose — motion stopped, occupancy information was not lost.
+  Facility switching across all seven facilities (Laundry → AA → Otter →
+  Rabbit → Weasel → Badger → Rat → back to Laundry) was confirmed
+  working with each facility's own canvas mounting correctly and zero
+  console errors throughout.
+
+Production verification remains **pending** — this milestone stops at
+local verification, the same staged-commit discipline Badger Room's own
+milestone used (`PROCESS.md`): a live Fly smoke check is a separate,
+later close-out step.
