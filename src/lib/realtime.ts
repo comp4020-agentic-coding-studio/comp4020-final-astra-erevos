@@ -1,4 +1,4 @@
-import type { AaRoomState, BadgerRoomState, Machine, OtterRoomState, RabbitRoomState, WeaselRoomState } from "./types.ts";
+import type { AaRoomState, BadgerRoomState, Machine, OtterRoomState, RabbitRoomState, RatRoomSeatState, WeaselRoomState } from "./types.ts";
 
 // Crit 9's real-time transport: a single in-process subscriber list,
 // correct because this app runs as one Node process on one Fly machine
@@ -24,15 +24,19 @@ import type { AaRoomState, BadgerRoomState, Machine, OtterRoomState, RabbitRoomS
 // get full type narrowing, and so adding a facility is one more variant
 // here, not a new parallel subscriber list. Otter Room (ADR 0004) was the
 // third variant, Rabbit Room (ADR 0005) the fourth, Weasel Room (ADR
-// 0006) the fifth; Badger Room (ADR 0007) is the sixth, added the same
-// way.
+// 0006) the fifth, Badger Room (ADR 0007) the sixth; Rat Room (ADR 0008)
+// is the seventh — carrying one SEAT'S state per event (`seat`, not
+// `room`), the same "one resource-keyed payload, not ten separate kind
+// values" shape `{ kind: "machine"; machine: Machine }` already uses for
+// whichever one of ten machines just changed (ADR 0008, Decision 6).
 export type BroadcastPayload =
   | { kind: "machine"; machine: Machine }
   | { kind: "aa-room"; room: AaRoomState }
   | { kind: "otter-room"; room: OtterRoomState }
   | { kind: "rabbit-room"; room: RabbitRoomState }
   | { kind: "weasel-room"; room: WeaselRoomState }
-  | { kind: "badger-room"; room: BadgerRoomState };
+  | { kind: "badger-room"; room: BadgerRoomState }
+  | { kind: "rat-room"; seat: RatRoomSeatState };
 
 type Subscriber = (payload: BroadcastPayload) => void;
 
@@ -50,11 +54,13 @@ export function subscribe(fn: Subscriber): () => void {
 // ... }` from the equivalent two places (reportAaRoomStatus, decayedAaRoom);
 // src/lib/otter-room.ts calls it with `{ kind: "otter-room", ... }`,
 // src/lib/rabbit-room.ts with `{ kind: "rabbit-room", ... }`,
-// src/lib/weasel-room.ts with `{ kind: "weasel-room", ... }`, and
-// src/lib/badger-room.ts with `{ kind: "badger-room", ... }` from their
-// own equivalent two places each (report*/decayed*) — each exactly once
-// per real write, so every open session sees the same canonical state
-// change regardless of which facility or what caused it.
+// src/lib/weasel-room.ts with `{ kind: "weasel-room", ... }`,
+// src/lib/badger-room.ts with `{ kind: "badger-room", ... }`, and
+// src/lib/rat-room.ts with `{ kind: "rat-room", seat }` from their own
+// equivalent places (report*/decayed*, applied to whichever ONE seat
+// just changed for rat-room.ts) — each exactly once per real write, so
+// every open session sees the same canonical state change regardless of
+// which facility or what caused it.
 export function broadcast(payload: BroadcastPayload): void {
   for (const subscriber of subscribers) subscriber(payload);
 }

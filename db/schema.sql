@@ -198,3 +198,57 @@ CREATE TABLE IF NOT EXISTS badger_room (
   reporter_id     TEXT,
   version         INTEGER NOT NULL DEFAULT 1
 );
+
+-- Rat Room: Toad Live's seventh facility. See
+-- notes/adr/0008-rat-room-live-state.md. UNLIKE every table since
+-- aa_room, this is TEN rows, not one — the decision-relevant question
+-- for this room is "how many seats are free," not "is anyone in the
+-- room," so the ADR modeled ten independently-reportable seat resources
+-- (A-J), structurally Laundry's sibling (ADR 0008, Decision 1), not
+-- otter_room's/rabbit_room's/weasel_room's/badger_room's single-row
+-- shape. Only the multiplicity is borrowed from `machines` — each row's
+-- own per-seat shape is the same occupancy+optional-expected_end_at
+-- model every single-room facility uses, never Machine's own
+-- status/started_at shape: no out-of-order column (nothing in Rat
+-- Room's own brief raises broken computers as a confirmed concern —
+-- ADR 0008, Decision 2), no started_at column (confirmed_at alone is
+-- already "the moment someone looked," same reasoning as every other
+-- occupancy room's own schema).
+--
+-- `seat UNIQUE` enforces the ADR's own fixed-ten-resources invariant at
+-- the schema level (ADR 0008, Mechanics) — exactly one row per logical
+-- seat A-J, not merely a convention the seed step is trusted to honor.
+-- `id` is the composite row identifier ('rat-room-a' .. 'rat-room-j'),
+-- the same '<slug>-<thing>' shape `machines.id` already uses — storage
+-- convenience only; the API's :seat path parameter is always the bare
+-- logical seat letter in the `seat` column, never this id (ADR 0008,
+-- Mechanics: "the composite id is never a value a client supplies or a
+-- path segment ever carries"). reporter_id references sessions.id, same
+-- meaning as every other facility's reporter_id (ADR 0002) — never a
+-- client-asserted value.
+--
+-- No room-level occupancy row exists anywhere in this schema for Rat
+-- Room: the panel's summary line and the 3D scene's one visual state are
+-- both purely derived from these ten rows at read time (see
+-- summarizeRatRoomSeats() in src/lib/types.ts) — persisting a second,
+-- room-level flag here would create exactly the two-sources-of-truth
+-- problem ADR 0008's Decision 4 rejects.
+--
+-- expected_end_at is a resident's own optional estimate of their own
+-- session length — never fabricated by the app (CLAUDE.md), and unlike
+-- every other occupancy room, not carried over from any sign-up sheet
+-- (Rat Room has none at all) — capped on write at confirmed_at + 4
+-- hours (ADR 0008, Decision 3): a real Toad Hall community norm
+-- confirmed for Rat Room specifically, stated at the per-seat grain from
+-- the start.
+CREATE TABLE IF NOT EXISTS rat_room_seats (
+  id              TEXT PRIMARY KEY,
+  seat            TEXT NOT NULL UNIQUE
+                    CHECK (seat IN ('A','B','C','D','E','F','G','H','I','J')),
+  occupancy       TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
+  expected_end_at INTEGER,
+  confirmed_at    INTEGER,
+  reporter_id     TEXT,
+  version         INTEGER NOT NULL DEFAULT 1
+);

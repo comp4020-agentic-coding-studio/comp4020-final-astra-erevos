@@ -220,6 +220,42 @@ export function formatBadgerRoomReportRejected(params: { actor: string; reason: 
   ]);
 }
 
+// Rat Room's own report-outcome lines — same shape as every sibling
+// room's own pair, plus one additional field (`seat`) naming WHICH of
+// the ten seats the report targeted — the single-row rooms never needed
+// this, since they have only one resource to name. The composite row id
+// ("rat-room-a") is never logged; `seat` is always the bare logical
+// letter (A-J), the same user-facing identity the API's own :seat path
+// parameter uses. See notes/adr/0008-rat-room-live-state.md.
+export function formatRatRoomReportOutcome(params: {
+  actor: string;
+  seat: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "rat-room"],
+    ["seat", params.seat],
+    ["action", "report"],
+    ["occupancy", params.occupancy],
+    ["result", params.result],
+    ["version", params.version],
+  ]);
+}
+
+export function formatRatRoomReportRejected(params: { actor: string; seat: string; reason: string }): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "rat-room"],
+    ["seat", params.seat],
+    ["action", "report"],
+    ["result", "rejected"],
+    ["reason", params.reason],
+  ]);
+}
+
 export function logSessionCreated(pseudonym: string): void {
   console.log(formatSessionCreated(pseudonym));
 }
@@ -301,4 +337,18 @@ export function logBadgerRoomReportOutcome(params: {
 
 export function logBadgerRoomReportRejected(params: { actor: string; reason: string }): void {
   console.log(formatBadgerRoomReportRejected(params));
+}
+
+export function logRatRoomReportOutcome(params: {
+  actor: string;
+  seat: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): void {
+  console.log(formatRatRoomReportOutcome(params));
+}
+
+export function logRatRoomReportRejected(params: { actor: string; seat: string; reason: string }): void {
+  console.log(formatRatRoomReportRejected(params));
 }

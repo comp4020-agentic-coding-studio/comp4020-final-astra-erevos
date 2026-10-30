@@ -280,3 +280,80 @@ export interface BadgerRoomState {
   // No freshness field, same reasoning as OtterRoomState/RabbitRoomState/
   // WeaselRoomState — ADR 0007, Decision 4.
 }
+
+// Rat Room — Toad Live's seventh facility. See
+// notes/adr/0008-rat-room-live-state.md: structurally UNLIKE every room
+// since AA Room — ten independently-reportable seat resources (A-J), not
+// one room-level occupancy row. The decision-relevant question here is
+// "how many seats are free," not "is anyone in the room," so Rat Room is
+// Laundry's structural sibling (many interchangeable resources a
+// resident picks from), not Otter/Rabbit/Weasel/Badger Room's (ADR 0008,
+// Decision 1). Only the MULTIPLICITY is borrowed from Laundry, never
+// Machine's own per-resource shape — each seat's own state is the same
+// occupancy + optional-expectedEndAt shape every single-room facility
+// uses, no out-of-order, no startedAt (ADR 0008, Decision 2).
+export const RAT_ROOM_SEAT_IDS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"] as const;
+export type RatRoomSeatId = (typeof RAT_ROOM_SEAT_IDS)[number];
+
+export type RatRoomSeatOccupancy = "empty" | "occupied" | "unknown";
+export const VALID_RAT_ROOM_SEAT_OCCUPANCIES: readonly RatRoomSeatOccupancy[] = [
+  "empty",
+  "occupied",
+  "unknown",
+];
+
+// "unknown" is never a value a resident's PATCH may send — see ADR 0008,
+// Decision 2, same rule as every other facility's occupancy/status.
+export type ReportableRatRoomSeatOccupancy = Extract<RatRoomSeatOccupancy, "empty" | "occupied">;
+export const VALID_REPORTABLE_RAT_ROOM_SEAT_OCCUPANCIES: readonly ReportableRatRoomSeatOccupancy[] = [
+  "empty",
+  "occupied",
+];
+
+export interface RatRoomSeatState {
+  // The composite row id ("rat-room-a") — storage/seed convenience only,
+  // never a value a client supplies or an API path segment carries (ADR
+  // 0008, Mechanics: the API's :seat parameter is always the bare logical
+  // seat letter below, never this id).
+  id: string;
+  seat: RatRoomSeatId;
+  occupancy: RatRoomSeatOccupancy;
+  // Only ever non-null alongside occupancy "occupied" — a resident's own
+  // estimate of their own session length (this room has no sign-up sheet
+  // to carry a time over from, unlike Otter/Rabbit/Weasel/Badger Room —
+  // ADR 0008, Decision 2), never fabricated by the app. Validated on
+  // write to satisfy now < expectedEndAt <= now + 4h (ADR 0008, Decision
+  // 3), and never inherited from a prior report — every PATCH fully
+  // replaces this field, never merges into whatever the row previously
+  // held.
+  expectedEndAt: number | null;
+  confirmedAt: number | null;
+  // Server-owned, starts at 1, PER SEAT — ten independent counters, not
+  // one shared room-level version (ADR 0008, Decision 6). Two residents
+  // reporting two different seats never conflict with each other.
+  version: number;
+  // No freshness field, same reasoning as every other occupancy facility.
+}
+
+// Purely derived from the ten seats' own occupancy values at read time —
+// NEVER stored, never has its own version, never a second source of
+// truth alongside the ten seat rows (ADR 0008, Decision 4). `visual` is
+// the one three-valued signal the panel/3D need: any seat occupied wins
+// outright; else all ten empty; else (no occupied, at least one unknown)
+// the honest middle case. emptyCount is the only number that may ever be
+// presented as "free" — unknownCount must never be folded into it.
+export interface RatRoomSummary {
+  visual: "empty" | "occupied" | "unknown";
+  emptyCount: number;
+  occupiedCount: number;
+  unknownCount: number;
+}
+
+export function summarizeRatRoomSeats(seats: readonly RatRoomSeatState[]): RatRoomSummary {
+  const emptyCount = seats.filter((s) => s.occupancy === "empty").length;
+  const occupiedCount = seats.filter((s) => s.occupancy === "occupied").length;
+  const unknownCount = seats.filter((s) => s.occupancy === "unknown").length;
+  const visual: RatRoomSummary["visual"] =
+    occupiedCount > 0 ? "occupied" : emptyCount === seats.length ? "empty" : "unknown";
+  return { visual, emptyCount, occupiedCount, unknownCount };
+}
