@@ -6,17 +6,17 @@ import { subscribe } from "../../lib/realtime.ts";
 // server-driven decay alike. Writes stay plain HTTP PATCH; see
 // notes/adr/0001-realtime-and-concurrent-updates.md.
 //
-// Stage 3 (AA Room), ADR 0004 (Otter Room), ADR 0005 (Rabbit Room), and
-// ADR 0006 (Weasel Room): still exactly one SSE connection, one
-// subscriber list. The single subscribe() callback below switches on the
-// broadcast payload's `kind` and writes the matching named SSE event
-// (`event: machine`, `event: aa-room`, `event: otter-room`,
-// `event: rabbit-room`, or `event: weasel-room`), so the five facilities'
-// events are told apart on the wire without a discriminator field inside
-// any one payload's own JSON body — the existing
-// `event: machine`/`event: aa-room`/`event: otter-room`/`event:
-// rabbit-room` listeners, and every test keyed on them, see exactly the
-// same shape they always have.
+// Stage 3 (AA Room), ADR 0004 (Otter Room), ADR 0005 (Rabbit Room), ADR
+// 0006 (Weasel Room), and ADR 0007 (Badger Room): still exactly one SSE
+// connection, one subscriber list. The single subscribe() callback below
+// switches on the broadcast payload's `kind` and writes the matching
+// named SSE event (`event: machine`, `event: aa-room`,
+// `event: otter-room`, `event: rabbit-room`, `event: weasel-room`, or
+// `event: badger-room`), so the six facilities' events are told apart on
+// the wire without a discriminator field inside any one payload's own
+// JSON body — the existing `event: machine`/`event: aa-room`/
+// `event: otter-room`/`event: rabbit-room` listeners, and every test
+// keyed on them, see exactly the same shape they always have.
 //
 // No initial snapshot and no event replay/history here: a client that
 // (re)connects re-fetches current persisted state itself (see

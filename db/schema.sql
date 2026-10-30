@@ -169,3 +169,32 @@ CREATE TABLE IF NOT EXISTS weasel_room (
   reporter_id     TEXT,
   version         INTEGER NOT NULL DEFAULT 1
 );
+
+-- Badger Room: Toad Live's sixth facility. See
+-- notes/adr/0007-badger-room-live-state.md. A single row, same shape as
+-- `otter_room`/`rabbit_room`/`weasel_room` — not because this table was
+-- copied for convenience, but because the ADR independently re-derived
+-- the same occupancy+optional-expected_end_at model from Badger Room's
+-- own facts (formal meetings, interviews, special study, and organised
+-- activities are several real, distinct uses, but none decision-relevant
+-- to a resident checking the app — ADR 0007, Decision 1/3). No
+-- `activities` column, no piano/TV-appliance status column: the room's
+-- conference table/piano/TV are named furniture, never something this
+-- app reports the condition of. reporter_id references sessions.id, same
+-- meaning as every other facility's reporter_id (ADR 0002) — never a
+-- client-asserted value.
+--
+-- expected_end_at is a resident's own optional carried-over estimate from
+-- the door's sign-up sheet — never fabricated by the app (CLAUDE.md) —
+-- capped on write at confirmed_at + 4 hours (ADR 0007, Decision 2): a
+-- real Toad Hall community norm confirmed for Badger Room specifically,
+-- not inferred from any other room's own figures.
+CREATE TABLE IF NOT EXISTS badger_room (
+  id              TEXT PRIMARY KEY DEFAULT 'badger-room',
+  occupancy       TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK (occupancy IN ('empty', 'occupied', 'unknown')),
+  expected_end_at INTEGER,
+  confirmed_at    INTEGER,
+  reporter_id     TEXT,
+  version         INTEGER NOT NULL DEFAULT 1
+);

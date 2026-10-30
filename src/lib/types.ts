@@ -239,3 +239,44 @@ export interface WeaselRoomState {
   // No freshness field, same reasoning as OtterRoomState/RabbitRoomState —
   // ADR 0006, Decision 4.
 }
+
+// Badger Room — Toad Live's sixth facility. See
+// notes/adr/0007-badger-room-live-state.md: the same occupancy +
+// optional-expectedEndAt shape as Otter Room, Rabbit Room, and Weasel
+// Room, independently re-derived from Badger Room's own facts (formal
+// meetings, interviews, special study, and organised activities are
+// several real, distinct uses, but this room's own brief states that
+// none is decision-relevant to a resident checking the app — ADR 0007,
+// Decision 1/3), not copied because the four rooms happen to look alike.
+// No activities, no headcount, no piano/TV-appliance status.
+export type BadgerRoomOccupancy = "empty" | "occupied" | "unknown";
+export const VALID_BADGER_ROOM_OCCUPANCIES: readonly BadgerRoomOccupancy[] = [
+  "empty",
+  "occupied",
+  "unknown",
+];
+
+// "unknown" is never a value a resident's PATCH may send — see ADR 0007,
+// Decision 1, same rule as every other facility's occupancy/status.
+export type ReportableBadgerRoomOccupancy = Extract<BadgerRoomOccupancy, "empty" | "occupied">;
+export const VALID_REPORTABLE_BADGER_ROOM_OCCUPANCIES: readonly ReportableBadgerRoomOccupancy[] = [
+  "empty",
+  "occupied",
+];
+
+export interface BadgerRoomState {
+  occupancy: BadgerRoomOccupancy;
+  // Only ever non-null alongside occupancy "occupied" — a resident's own
+  // carried-over estimate from the door's sign-up sheet, never fabricated
+  // from an assumed session length (CLAUDE.md). Validated on write to
+  // satisfy now < expectedEndAt <= now + 4h (ADR 0007, Decision 2), and
+  // never inherited from a prior report — every PATCH fully replaces this
+  // field, never merges into whatever the row previously held.
+  expectedEndAt: number | null;
+  confirmedAt: number | null;
+  // Server-owned, starts at 1 — same contract as every other facility's
+  // version field.
+  version: number;
+  // No freshness field, same reasoning as OtterRoomState/RabbitRoomState/
+  // WeaselRoomState — ADR 0007, Decision 4.
+}

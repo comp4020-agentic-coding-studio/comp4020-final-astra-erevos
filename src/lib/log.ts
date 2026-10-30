@@ -191,6 +191,35 @@ export function formatWeaselRoomReportRejected(params: { actor: string; reason: 
   ]);
 }
 
+// Badger Room's own report-outcome lines — same shape as the Weasel Room
+// pair above, naming the facility ("badger-room"). See
+// notes/adr/0007-badger-room-live-state.md.
+export function formatBadgerRoomReportOutcome(params: {
+  actor: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "badger-room"],
+    ["action", "report"],
+    ["occupancy", params.occupancy],
+    ["result", params.result],
+    ["version", params.version],
+  ]);
+}
+
+export function formatBadgerRoomReportRejected(params: { actor: string; reason: string }): string {
+  return formatLine([
+    ["actor", params.actor],
+    ["facility", "badger-room"],
+    ["action", "report"],
+    ["result", "rejected"],
+    ["reason", params.reason],
+  ]);
+}
+
 export function logSessionCreated(pseudonym: string): void {
   console.log(formatSessionCreated(pseudonym));
 }
@@ -259,4 +288,17 @@ export function logWeaselRoomReportOutcome(params: {
 
 export function logWeaselRoomReportRejected(params: { actor: string; reason: string }): void {
   console.log(formatWeaselRoomReportRejected(params));
+}
+
+export function logBadgerRoomReportOutcome(params: {
+  actor: string;
+  occupancy: string;
+  result: ReportOutcome;
+  version: number;
+}): void {
+  console.log(formatBadgerRoomReportOutcome(params));
+}
+
+export function logBadgerRoomReportRejected(params: { actor: string; reason: string }): void {
+  console.log(formatBadgerRoomReportRejected(params));
 }
