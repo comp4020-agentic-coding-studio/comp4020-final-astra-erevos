@@ -1103,16 +1103,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
          dead CSS, not a live bug, and removing it is a separate, unrelated
          cleanup from this facility's own work. (Otter Room never had its
          own copy of this rule — its left pane went straight to a real 3D
-         scene without a placeholder stage.) Badger Room briefly reused
-         this rule for its own practical-panel-first placeholder stage;
-         now that Badger Room has its own real 3D diorama (Stage 1 static
-         shell — see notes/adr/0007-badger-room-live-state.md), it no
-         longer does, the same way Otter Room's own commit removed it from
-         this selector once ITS placeholder stage ended. Rat Room reuses
-         it now, for the same practical-panel-first placeholder stage —
-         see notes/adr/0008-rat-room-live-state.md. */
-      .aa-room-placeholder,
-      .rat-room-placeholder {
+         scene without a placeholder stage.) Badger Room and Rat Room each
+         briefly reused this rule for their own practical-panel-first
+         placeholder stage; now that both have their own real 3D diorama
+         (Stage 1 static shell — see
+         notes/adr/0007-badger-room-live-state.md and
+         notes/adr/0008-rat-room-live-state.md), neither does any longer,
+         the same way Otter Room's own commit removed it from this
+         selector once ITS placeholder stage ended. */
+      .aa-room-placeholder {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1835,21 +1834,26 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             </section>
           </div>
 
-          {/* Rat Room's left pane — deliberately a plain placeholder, not
-              a 3D scene: this stage is the practical panel + realtime
-              integration only (see
-              notes/adr/0008-rat-room-live-state.md). A real diorama is
-              later work, the same "practical panel first, real scene
-              later" order every prior facility went through. No
-              renderer-host.ts registration at all — the generic
-              facility-tab script below only toggles [hidden] on
-              .facility-view[data-facility], and facility-switch.ts's
-              selectHallFacility() already no-ops safely for any key with
-              nothing registered, so plain static markup is sufficient for
-              facility switching to work correctly with no 3D code. */}
+          {/* Rat Room's left pane — a real 3D diorama, Stage 1 (static
+              shell only): perimeter computer workstations (desk +
+              monitor + chair), a printer in the north-west corner, and a
+              door threshold in the south-west corner — see
+              src/lib/hall-view/rat-room.ts for the full wall-visibility
+              reasoning and its own note on why the ~10 decorative
+              workstations drawn here are NOT a rendering of the product's
+              A-J seat slots. Same cutaway low-poly language as every
+              other facility's, mounted onto the ONE shared renderer
+              (src/lib/hall-view/renderer-host.ts), never a second
+              WebGLRenderer. aria-hidden for the same reason every other
+              facility's hall-view is: every fact it shows is already
+              stated as accessible text in the Rat Room panel below.
+              Hidden by default; the facility-tab script shows it only
+              when Rat Room is selected. See
+              notes/adr/0008-rat-room-live-state.md. */}
           <div class="facility-view" data-facility="rat-room" hidden>
-            <section class="hall-view rat-room-placeholder" aria-hidden="true">
-              <p>Rat Room visual coming next.</p>
+            <section class="hall-view" aria-hidden="true" data-rat-room-visual={ratRoomSummary.visual}>
+              <div class="hall-view-canvas" id="rat-room-canvas"></div>
+              <p class="hall-view-caption">Toad Hall — Rat Room, live</p>
             </section>
           </div>
         </div>
@@ -2889,6 +2893,47 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             // on its own either way.
             badgerRoomContainer.remove();
             badgerRoomSection.querySelector(".hall-view-caption")?.remove();
+          }
+        });
+      }
+    </script>
+
+    {/* Rat Room's own 3D mount, same lazy-build-on-first-select shape as
+        every other facility's mount script — but mountRatRoom() takes
+        the already-DERIVED room `visual`
+        ("empty" | "occupied" | "unknown", data-rat-room-visual from this
+        page load's own summarizeRatRoomSeats() read), never any
+        individual seat's own state (ADR 0008, Decision 4). See
+        notes/adr/0008-rat-room-live-state.md and
+        src/lib/hall-view/rat-room.ts. */}
+    <script>
+      import { mountRatRoom } from "../lib/hall-view/scene.ts";
+      import { activateFacility } from "../lib/hall-view/renderer-host.ts";
+      import { onFacilitySelected } from "../lib/hall-view/facility-switch.ts";
+
+      type RatRoomVisual = "empty" | "occupied" | "unknown";
+
+      const ratRoomContainer = document.getElementById("rat-room-canvas");
+      const ratRoomSection = ratRoomContainer?.closest<HTMLElement>(".hall-view") ?? null;
+
+      if (ratRoomContainer && ratRoomSection && ratRoomSection.dataset.ratRoomVisual) {
+        let built = false;
+        onFacilitySelected("rat-room", () => {
+          if (built) {
+            activateFacility("rat-room", ratRoomContainer);
+            return;
+          }
+          built = true;
+          try {
+            const initialVisual = ratRoomSection.dataset.ratRoomVisual as RatRoomVisual;
+            mountRatRoom(ratRoomContainer, initialVisual);
+          } catch {
+            // Same fallback as every other facility's own mount — WebGL
+            // unavailable, or anything else went wrong building the
+            // scene. The Rat Room panel below is a complete experience
+            // on its own either way.
+            ratRoomContainer.remove();
+            ratRoomSection.querySelector(".hall-view-caption")?.remove();
           }
         });
       }
@@ -4211,14 +4256,19 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         start, same as every other facility; onRatRoomEvent()'s own
         listener carries ONE seat's state per call (ADR 0008, Decision 6),
         so this script updates exactly that one seat's card and leaves
-        the other nine untouched, then recomputes the pure summary from
-        all ten currently-held seat states — never a second,
-        independently-tracked room-level flag. No 3D hook at all this
-        stage — the left pane is a plain placeholder, so there is no
-        applyRatRoomStateToScene() to call, unlike Otter/Rabbit/Weasel/
-        Badger Room's own scene hooks. */}
+        the other nine untouched, then recomputes the pure summary AND
+        the 3D scene's own derived `visual` from all ten currently-held
+        seat states — never a second, independently-tracked room-level
+        flag feeding either one. applyRatRoomStateToScene()
+        (src/lib/hall-view/scene.ts) is the exact same cross-script-block
+        sharing every other facility's own scripts already rely on for
+        their own scene hooks — a safe no-op via scene.ts's
+        mountedRatRoomScenes Set when nothing has mounted yet (e.g. a
+        resident whose current tab is Laundry and has never switched to
+        Rat Room). */}
     <script>
       import { onRatRoomEvent, onOpen } from "../lib/live-stream.ts";
+      import { applyRatRoomStateToScene } from "../lib/hall-view/scene.ts";
 
       type RatRoomSeatOccupancy = "empty" | "occupied" | "unknown";
       interface RatRoomSeatState {
@@ -4268,6 +4318,27 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // exists to prevent — caught by a real screenshot showing the
       // headline broken across lines mid-phrase despite the CSS being
       // otherwise correct.
+      // The 3D scene's ONLY input: the same already-derived three-valued
+      // `visual` summarizeRatRoomSeats() (src/lib/types.ts) computes
+      // server-side, recomputed here from this script's own client-held
+      // seat cache. Any seat occupied wins outright; else all ten empty;
+      // else (no occupied, at least one unknown) the honest middle case
+      // — identical precedence to the server-side function, never
+      // re-derived differently (ADR 0008, Decision 4). The 3D scene
+      // never receives occupiedCount/emptyCount/unknownCount or any
+      // individual seat's own state — only this one value.
+      function ratRoomVisualFor(seats: Map<string, RatRoomSeatState>): "empty" | "occupied" | "unknown" {
+        let emptyCount = 0;
+        let occupiedCount = 0;
+        for (const seat of seats.values()) {
+          if (seat.occupancy === "empty") emptyCount++;
+          else if (seat.occupancy === "occupied") occupiedCount++;
+        }
+        if (occupiedCount > 0) return "occupied";
+        if (emptyCount === seats.size) return "empty";
+        return "unknown";
+      }
+
       function renderSummary(container: HTMLElement, seats: Map<string, RatRoomSeatState>): void {
         let emptyCount = 0;
         let unknownCount = 0;
@@ -4364,6 +4435,14 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       function applyRatRoomSeatUpdate(seat: RatRoomSeatState): void {
         seatCache.set(seat.seat, seat);
         if (summaryEl) renderSummary(summaryEl, seatCache);
+        // Only once all ten seats have been seen at least once (the
+        // initial-seed loop below populates all ten before anything else
+        // runs) does the derived visual mean anything real — but
+        // ratRoomVisualFor() is a pure function of whatever's in the
+        // cache, so calling it before that point just no-ops safely
+        // against a partial cache the same way every other derived value
+        // here would.
+        applyRatRoomStateToScene(ratRoomVisualFor(seatCache));
 
         const els = seatElements.get(seat.seat);
         if (!els) return;

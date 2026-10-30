@@ -48,13 +48,14 @@
 // hover/focus/tween logic changed — only who calls requestAnimationFrame
 // and owns the WebGLRenderer instance.
 import * as THREE from "three";
-import type { AaRoomState, BadgerRoomState, Location, Machine, MachineType, OtterRoomState, RabbitRoomState, WeaselRoomState } from "../types.ts";
+import type { AaRoomState, BadgerRoomState, Location, Machine, MachineType, OtterRoomState, RabbitRoomState, RatRoomSummary, WeaselRoomState } from "../types.ts";
 import { buildRoom } from "./room.ts";
 import { buildAaRoom } from "./aa-room.ts";
 import { buildOtterRoom } from "./otter-room.ts";
 import { buildRabbitRoom } from "./rabbit-room.ts";
 import { buildWeaselRoom } from "./weasel-room.ts";
 import { buildBadgerRoom } from "./badger-room.ts";
+import { buildRatRoom } from "./rat-room.ts";
 import { ROOM_PLACEMENTS } from "./hall-layout.ts";
 import { buildRoomLabel } from "./room-label.ts";
 import { buildMachineMesh, type MachineMeshHandle } from "./machine-mesh.ts";
@@ -119,6 +120,7 @@ const AA_ROOM_FACILITY_KEY = "aa-room";
 const OTTER_ROOM_FACILITY_KEY = "otter-room";
 const RABBIT_ROOM_FACILITY_KEY = "rabbit-room";
 const BADGER_ROOM_FACILITY_KEY = "badger-room";
+const RAT_ROOM_FACILITY_KEY = "rat-room";
 const WEASEL_ROOM_FACILITY_KEY = "weasel-room";
 
 // Stage 6 — the workbench-layout page wants the right-hand information
@@ -1032,6 +1034,126 @@ export function mountBadgerRoom(container: HTMLElement, initial: BadgerRoomState
   function dispose(): void {
     unregisterFacility(BADGER_ROOM_FACILITY_KEY);
     mountedBadgerRoomScenes.delete(registeredScene);
+  }
+
+  return { dispose };
+}
+
+// Rat Room — the same one-Set-of-callbacks subscriber shape
+// mountedBadgerRoomScenes uses, EXCEPT it carries the already-DERIVED
+// room `visual`, never a single room's own occupancy and never any one
+// of the ten seats' own state: index.astro's Rat Room panel script
+// recomputes summarizeRatRoomSeats() over its own ten-seat cache on
+// every SSE update (see that script's own renderRatRoomSummaryEl note)
+// and calls applyRatRoomStateToScene() with only the resulting `visual`
+// — this module never has access to, and never needs, the individual
+// seats themselves. See notes/adr/0008-rat-room-live-state.md, Decision
+// 4.
+interface MountedRatRoomScene {
+  applyState(visual: RatRoomSummary["visual"]): void;
+}
+const mountedRatRoomScenes = new Set<MountedRatRoomScene>();
+
+export function applyRatRoomStateToScene(visual: RatRoomSummary["visual"]): void {
+  for (const scene of mountedRatRoomScenes) scene.applyState(visual);
+}
+
+// Rat Room's mount — the seventh facility registered against the exact
+// same renderer-host.ts shared renderer every other facility already
+// uses. No second WebGLRenderer, no second requestAnimationFrame loop.
+// Like every prior single-row room, Rat Room's one diorama has no
+// hall-layout.ts-style placement and no interaction at all.
+export function mountRatRoom(container: HTMLElement, initialVisual: RatRoomSummary["visual"]): HallViewHandle {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf6efe1); // --page, same as every other facility's
+
+  let aspect = Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+
+  const keyLight = new THREE.DirectionalLight(0xfff4e0, 2.2);
+  keyLight.position.set(4, 6, 3);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.camera.left = -4;
+  keyLight.shadow.camera.right = 4;
+  keyLight.shadow.camera.top = 4;
+  keyLight.shadow.camera.bottom = -4;
+  keyLight.shadow.camera.near = 1;
+  keyLight.shadow.camera.far = 15;
+  keyLight.shadow.bias = -0.002;
+  scene.add(keyLight);
+
+  const hemiLight = new THREE.HemisphereLight(0xfdf6e6, 0x8a6a4a, 0.6);
+  scene.add(hemiLight);
+
+  const room = buildRatRoom();
+  scene.add(room.group);
+  room.applyState(initialVisual);
+
+  const overviewLookAt = new THREE.Vector3();
+  let overviewZoom = 1;
+  function computeOverviewFit(): void {
+    const corners = boundsCorners([room.group]);
+    const fit = fitBoundsToRect(
+      corners,
+      ISO_VIEW_DIRECTION,
+      new THREE.Vector3(0, 1, 0),
+      aspect,
+      -OVERVIEW_FILL,
+      OVERVIEW_FILL,
+      -OVERVIEW_FILL,
+      OVERVIEW_FILL,
+    );
+    overviewLookAt.copy(fit.lookAt);
+    overviewZoom = 1 / fit.frustumHalfHeight;
+    camera.left = -1 * aspect;
+    camera.right = 1 * aspect;
+    camera.top = 1;
+    camera.bottom = -1;
+    camera.position.copy(overviewLookAt).addScaledVector(ISO_VIEW_DIRECTION, CAMERA_DISTANCE);
+    camera.zoom = overviewZoom;
+    camera.lookAt(overviewLookAt);
+    camera.updateProjectionMatrix();
+  }
+  computeOverviewFit();
+
+  const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  let elapsed = 0;
+
+  const registeredScene: MountedRatRoomScene = {
+    applyState(visual) {
+      room.applyState(visual);
+      if (prefersReducedMotion) {
+        // Same reduced-motion contract as every other facility's mount:
+        // every loop (here, just figure idle sway) stops at a single
+        // static pose/frame that still correctly shows the current
+        // state, rather than animating to get there. This one immediate
+        // call is also the LAST — the render loop below never calls
+        // update() again while reduced motion is on.
+        room.update(0);
+      }
+    },
+  };
+  mountedRatRoomScenes.add(registeredScene);
+
+  registerFacility(RAT_ROOM_FACILITY_KEY, {
+    scene,
+    camera,
+    resize(width, height) {
+      aspect = width / Math.max(height, 1);
+      computeOverviewFit();
+    },
+    update(deltaSeconds) {
+      if (prefersReducedMotion) return; // see applyState's own note above
+      elapsed += deltaSeconds;
+      room.update(elapsed);
+    },
+  });
+  activateFacility(RAT_ROOM_FACILITY_KEY, container);
+
+  function dispose(): void {
+    unregisterFacility(RAT_ROOM_FACILITY_KEY);
+    mountedRatRoomScenes.delete(registeredScene);
   }
 
   return { dispose };
