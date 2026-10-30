@@ -1,16 +1,13 @@
 # ADR 0007: Badger Room's shared live state
 
-**Status**: Implemented and verified locally — production verification
-pending. This ADR fixed the state model, statuses, and decay rules for
-Toad Live's sixth facility before any schema, API, or UI work began, the
-same order ADR 0001/0002/0003/0004/0005/0006 each used (see
-`PROCESS.md`'s "Rewritten each time the project's shape genuinely
-changed" convention). Backend, practical panel, and 3D scene are all
-built and locally verified per the Verification section below; unlike
-ADR 0004/0005/0006, this facility has not yet been shipped to the
-deployed Fly app, so this ADR does not yet claim "verified live" — that
-update is deferred to its own close-out step once production smoke
-testing actually runs.
+**Status**: Implemented and verified live. This ADR fixed the state
+model, statuses, and decay rules for Toad Live's sixth facility before
+any schema, API, or UI work began, the same order ADR
+0001/0002/0003/0004/0005/0006 each used (see `PROCESS.md`'s "Rewritten
+each time the project's shape genuinely changed" convention). Backend,
+practical panel, and 3D scene are all built, locally verified, and now
+confirmed against the deployed Fly app per the Verification section
+below.
 
 **This ADR's conclusion looks identical to ADR 0004's (Otter Room), ADR
 0005's (Rabbit Room), and ADR 0006's (Weasel Room) — the same
@@ -537,8 +534,41 @@ actual execution for Badger Room:
   was confirmed to tear down and remount cleanly through the existing
   shared renderer, with zero console/page errors throughout, across both
   the Stage 1 and Stage 2 verification passes.
-- **production, against the deployed Fly app — pending.** Not yet run.
-  Badger Room has not been pushed or deployed; this ADR's status will
-  move to "verified live" only once the same production smoke checklist
-  every prior facility's own ADR records here has actually been executed
-  against the live URL.
+- **production, against the deployed Fly app (CI run `41079082720`,
+  commit `455d938`, first-try green on both `check` and `deploy` — zero
+  reruns needed; see `PROCESS.md`'s SQLite test-isolation entry for why
+  this is itself meaningful evidence at this suite's current size).** Fly
+  production version 40. Laundry, AA Room, Otter Room, Rabbit Room,
+  Weasel Room, and Badger Room all confirmed panel + 3D working on the
+  live URL, with no regression in any previously-shipped facility.
+  Otter Room's and Rabbit Room's whiteboard z-fighting fix (`48f7697`)
+  was confirmed live: both whiteboards render with no flickering diagonal
+  tear, and Otter Room's Occupied marker strokes display correctly in
+  front of the board. Badger Room specifically: an Empty report; an
+  Occupied report with `expectedEndAt` showing the correct remaining
+  time; an Occupied report with no `expectedEndAt` showing "remaining
+  time unknown" exactly, not a guessed number; an `occupied → empty →
+  occupied` cycle showing figures correctly appearing and disappearing
+  with zero residue; the Unknown scene correctly desaturated and dimmed
+  with no figures; `expectedEndAt` presence or absence confirmed not to
+  change the 3D scene; the piano confirmed on the room's east side with
+  its keys facing west; the large TV confirmed grounded against the
+  south edge, never floating; the sofas, conference table, ~10 chairs,
+  and door threshold all confirmed spatially correct. Two independent
+  browser sessions against production: each session's initial `GET`
+  reflected the other's last report correctly; a report in one reached
+  the other via SSE with no reload in both directions, both the practical
+  panel and the 3D scene updating together. A forced stale `ifVersion`
+  produced the conflict path correctly; a direct `PATCH` of `occupancy:
+  "unknown"` was confirmed rejected `400`. Facility switching (Laundry →
+  AA Room → Otter Room → Rabbit Room → Weasel Room → Badger Room →
+  Laundry) round-tripped cleanly. A reduced-motion production check
+  confirmed a static Occupied pose, byte-identical across a 1.5-second
+  gap. `GET /readme/` returned 200. Both sessions showed zero genuine
+  console/page JS errors throughout. `flyctl logs` showed the two
+  sessions' distinct pseudonyms (`Toad-8C346F`, `Toad-9B36AE`) correctly
+  attributed to their own reports, every accepted report logged
+  `result=ok`, a deliberately forced stale write logged `result=conflict`
+  against the correct version, and `version` incremented monotonically
+  throughout, with no error/exception/database-lock/crash lines anywhere
+  in the logs. No new production-only issue was found.

@@ -290,6 +290,11 @@ a third straight first-try pass since the fix, now with the suite grown
 to 180 tests and a fourth decay spec file in the parallel mix.
 `database is locked` still hasn't reappeared.
 
+Badger Room's own push (`41079082720`) was first-try green again — a
+fourth straight first-try pass since the fix, with the suite now grown to
+212 tests across six live facilities and a fifth decay spec file in the
+parallel mix. `database is locked` still hasn't recurred.
+
 ## Weasel Room: the same model again, and two recurring lessons applied on sight
 
 Weasel Room's own ADR
@@ -469,6 +474,14 @@ the ADR's own Verification section for the full automated/manual detail)
 with production smoke testing deliberately deferred to its own close-out
 step, the same staged-commit discipline every prior facility's milestone
 followed.
+
+Shipped to Fly on production version 40, CI green on the first try (run
+`41079082720`). A post-deploy smoke check against the live URL confirmed
+all six facilities' panel and 3D, two-session SSE sync driving Badger
+Room's panel and 3D figures together, and a clean `flyctl logs` trace;
+the Otter Room/Rabbit Room whiteboard z-fighting fix was separately
+confirmed live. No production-only product bug surfaced. See the ADR's
+own Verification section for the full detail.
 
 ## What's still ahead
 
