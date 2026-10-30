@@ -1036,12 +1036,13 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
          dead CSS, not a live bug, and removing it is a separate, unrelated
          cleanup from this facility's own work. (Otter Room never had its
          own copy of this rule — its left pane went straight to a real 3D
-         scene without a placeholder stage.) Badger Room reuses it now,
-         the same "Stage: panel + placeholder, later a real scene" order
-         Otter/Rabbit/Weasel Room each went through — see
-         notes/adr/0007-badger-room-live-state.md. */
-      .aa-room-placeholder,
-      .badger-room-placeholder {
+         scene without a placeholder stage.) Badger Room briefly reused
+         this rule for its own practical-panel-first placeholder stage;
+         now that Badger Room has its own real 3D diorama (Stage 1 static
+         shell — see notes/adr/0007-badger-room-live-state.md), it no
+         longer does, the same way Otter Room's own commit removed it from
+         this selector once ITS placeholder stage ended. */
+      .aa-room-placeholder {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1592,21 +1593,28 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             </section>
           </div>
 
-          {/* Badger Room's left pane — deliberately a plain placeholder,
-              not a 3D scene: this stage is the practical panel + realtime
-              integration only (see
-              notes/adr/0007-badger-room-live-state.md). A real diorama is
-              later work, the same "practical panel first, real scene
-              later" order Otter Room/Rabbit Room/Weasel Room each went
-              through. No renderer-host.ts registration at all — the
-              generic facility-tab script below only toggles [hidden] on
-              .facility-view[data-facility], and facility-switch.ts's
-              selectHallFacility() already no-ops safely for any key with
-              nothing registered, so plain static markup is sufficient for
-              facility switching to work correctly with no 3D code. */}
+          {/* Badger Room's left pane — a real 3D diorama: conference
+              table + ~10 chairs, a piano, a large TV, two sofas, a door
+              threshold, plus decorative occupied-only figures — see
+              src/lib/hall-view/badger-room.ts for the full
+              wall-visibility reasoning and ADR 0007's no-activity-props
+              boundary — same cutaway low-poly language as every other
+              facility's, mounted onto the ONE shared renderer
+              (src/lib/hall-view/renderer-host.ts), never a second
+              WebGLRenderer. aria-hidden for the same reason every other
+              facility's hall-view is: every fact it shows is already
+              stated as accessible text in the Badger Room panel below.
+              Hidden by default; the facility-tab script shows it only
+              when Badger Room is selected. data-badger-room is the same
+              initial-state-from-this-page-load payload the Badger Room
+              panel's own script already reads from the info panel
+              below — read once here too so the 3D mount has the real
+              starting state without a second fetch. See
+              notes/adr/0007-badger-room-live-state.md. */}
           <div class="facility-view" data-facility="badger-room" hidden>
-            <section class="hall-view badger-room-placeholder" aria-hidden="true">
-              <p>Badger Room visual coming next.</p>
+            <section class="hall-view" aria-hidden="true" data-badger-room={JSON.stringify(badgerRoom)}>
+              <div class="hall-view-canvas" id="badger-room-canvas"></div>
+              <p class="hall-view-caption">Toad Hall — Badger Room, live</p>
             </section>
           </div>
         </div>
@@ -2496,6 +2504,48 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             // on its own either way.
             weaselRoomContainer.remove();
             weaselRoomSection.querySelector(".hall-view-caption")?.remove();
+          }
+        });
+      }
+    </script>
+
+    {/* Badger Room's own 3D mount, same lazy-build-on-first-select shape as
+        every other facility's mount script. See
+        notes/adr/0007-badger-room-live-state.md and
+        src/lib/hall-view/badger-room.ts. */}
+    <script>
+      import { mountBadgerRoom } from "../lib/hall-view/scene.ts";
+      import { activateFacility } from "../lib/hall-view/renderer-host.ts";
+      import { onFacilitySelected } from "../lib/hall-view/facility-switch.ts";
+
+      interface BadgerRoomSceneState {
+        occupancy: "empty" | "occupied" | "unknown";
+        expectedEndAt: number | null;
+        confirmedAt: number | null;
+        version: number;
+      }
+
+      const badgerRoomContainer = document.getElementById("badger-room-canvas");
+      const badgerRoomSection = badgerRoomContainer?.closest<HTMLElement>(".hall-view") ?? null;
+
+      if (badgerRoomContainer && badgerRoomSection && badgerRoomSection.dataset.badgerRoom) {
+        let built = false;
+        onFacilitySelected("badger-room", () => {
+          if (built) {
+            activateFacility("badger-room", badgerRoomContainer);
+            return;
+          }
+          built = true;
+          try {
+            const initial = JSON.parse(badgerRoomSection.dataset.badgerRoom!) as BadgerRoomSceneState;
+            mountBadgerRoom(badgerRoomContainer, initial);
+          } catch {
+            // Same fallback as every other facility's own mount — WebGL
+            // unavailable, or anything else went wrong building the
+            // scene. The Badger Room panel below is a complete experience
+            // on its own either way.
+            badgerRoomContainer.remove();
+            badgerRoomSection.querySelector(".hall-view-caption")?.remove();
           }
         });
       }
@@ -3609,19 +3659,21 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
     </script>
 
     {/* Badger Room — its own, separate state and script, same shape as
-        Otter Room's script: BadgerRoomState is deliberately not the
-        Machine or AaRoomState shape (no activities, no freshness — see
-        notes/adr/0007-badger-room-live-state.md), so this is its own
+        Weasel Room's script above: BadgerRoomState is deliberately not
+        the Machine or AaRoomState shape (no activities, no freshness —
+        see notes/adr/0007-badger-room-live-state.md), so this is its own
         small "render canonical state into these DOM nodes" function.
         Wired into the page's one shared SSE connection
-        (src/lib/live-stream.ts) from the start — no separate realtime
-        follow-up step, since this facility's backend already ships
-        realtime support. No 3D hook at all this stage — the left pane is
-        a plain placeholder (see the markup above), so there is no
-        applyBadgerRoomStateToScene() to call, unlike Otter/Rabbit/Weasel
-        Room's own scene hooks. */}
+        (src/lib/live-stream.ts) from the start. Also feeds the 3D scene
+        via applyBadgerRoomStateToScene() (src/lib/hall-view/scene.ts),
+        the exact same cross-script-block sharing every other facility's
+        own scripts already rely on for their own scene hooks — a safe
+        no-op via scene.ts's mountedBadgerRoomScenes Set when nothing has
+        mounted yet (e.g. a resident whose current tab is Laundry and has
+        never switched to Badger Room). */}
     <script>
       import { onBadgerRoomEvent, onOpen } from "../lib/live-stream.ts";
+      import { applyBadgerRoomStateToScene } from "../lib/hall-view/scene.ts";
 
       type BadgerRoomOccupancy = "empty" | "occupied" | "unknown";
       interface BadgerRoomState {
@@ -3678,6 +3730,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // facility's own apply*Update(): one canonical update path, never a
       // second client-side state model to drift from the server's.
       function applyBadgerRoomUpdate(room: BadgerRoomState): void {
+        applyBadgerRoomStateToScene(room);
+
         if (!statusEl || !statusIconEl || !statusLabelEl || !remainingEl || !confirmedEl || !form) {
           return;
         }
