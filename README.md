@@ -1,31 +1,15 @@
 # Toad Live
 
 Toad Live is a live status board for Toad Hall's shared spaces, kept
-current by whoever last walked past, not sensors. Seven facilities carry
-real shared state today: Laundry (five rooms, ten machines), the Anton
-Aalbers (AA) Room common room, the Otter Room study room, the Rabbit Room
-group-study/shared-meal room, the Weasel Room music practice room, the
-Badger Room formal meeting/interview room, and the Rat Room computer
-room. Laundry proved the shape; every room since earned its own state
-model from what's actually true about that specific room, not a template
-copied from Laundry's — Rabbit Room, for instance, really is used for two
-different things, group study and shared meals, but its live state only
-ever records whether the room is occupied, never which of the two is
-happening, since that distinction has no decision-relevant value to a
-resident checking the app. Weasel Room is the same story with guitar and
-keyboard: two real instruments, one occupancy field, never a record of
-which one is in use. Badger Room pushes that same question hardest —
-formal meetings, interviews, special study, and organised activities like
-Toad's Table are genuinely several different things, and the room is
-formal enough that it might seem to need a booking system, but its live
-state still only ever records whether it's occupied and, optionally, when
-a resident expects to finish. Rat Room is the first facility since
-Laundry to need a different shape entirely: the computer room is modeled
-as **ten independently-reportable seat resources**, not one room-level
-occupancy fact, because the question that actually matters there is "how
-many seats are free," not "is anyone in here" — the UI answers exactly
-that, and the room's own 3D state is derived from the ten seats'
-observations, never a second, separately-tracked room-level fact.
+current by whoever last walked past, not sensors. Seven facilities
+carry real shared state: Laundry (five locations, ten machines) and six
+rooms — AA Room (common room), Otter Room (study), Rabbit Room (group
+study/shared meals), Weasel Room (music), Badger Room (formal
+meetings), and Rat Room (a computer room modeled as ten
+independently-reportable seats, not one room-level flag, since "how
+many seats are free" is the real question there). Laundry proved the
+shape; every room since earned its own state model from what's actually
+true about that room, never a template copied from Laundry's.
 
 ## Why this, and why for Toad Hall specifically
 
@@ -36,73 +20,56 @@ argues scalability is a choice, not a virtue; Robin Sloan's
 [*An App Can Be a Home-Cooked Meal*](https://www.robinsloan.com/notes/home-cooked-app/)
 argues a small app for people you know is worth building, product or
 not. Toad Live sits between them, sized to one bounded community that
-already knows "Block C." Laundry proves the shape before any other
-facility claims it.
+already knows "Block C."
 
 ## Useful at a glance, or it's not useful at all
 
-If checking the app takes longer than walking to the laundry room,
-nobody uses it. The default view answers one question: which machines
-are available, in use, out of order or unknown, and, where known, how
-long an in-use machine has left.
+If checking the app takes longer than walking there, nobody uses it.
+Pick a tab, see that room's current state and, where known, how long it
+has left. Reporting needs no account: choose the facility, update the
+relevant room or seat, and submit.
 
 ## Freshness is part of the information, not an afterthought
 
 A resident's report is a claim about a moment, not a fact that stays
 true. The OpenStreetMap wiki's
 [`survey:date`](https://wiki.openstreetmap.org/wiki/Key:survey:date)
-convention — tagging when a crowd-maintained fact was last checked —
-is real precedent: data admitting its age beats data that merely looks
-current, which is why every machine shows "confirmed N min ago." A
-timed in-use report expires to unknown once its end time passes;
-out-of-order is the exception. Whether available ages out too is
-unresolved; see `PROCESS.md`.
-
-## Reporting has to take seconds
-
-A report should take seconds, no account setup — opening the page is
-enough.
-
-## It gets better because other people use it
-
-Toad Live gets more useful as more residents participate — one person
-reporting to nobody is a diary.
+convention — tagging when a crowd-maintained fact was last checked — is
+real precedent: data admitting its age beats data that merely looks
+current, which is why every status shows "confirmed N min ago." Reports
+expire back to unknown on their own schedule, decided per facility and
+recorded in `notes/adr/`; out-of-order is the one sticky exception.
 
 ## Tells people apart, without making them prove who they are
 
 A report needs *some* identity behind it, or there's no way to tell
 whose view is fresher when two disagree. Toad Live's answer is a
-server-issued pseudonym (`Toad-7F3A9C`), not an account: on first visit
-the server hands a browser a credential it never asked for, and a
-report is attributed to whichever credential the request carried —
-never to what a browser claims about itself. One resident, two browsers,
-is two pseudonyms. Any valid pseudonym may report any machine — shared,
-not owned. See `notes/adr/0002-identity-and-permissions.md`.
+server-issued pseudonym (`Toad-7F3A9C`), not an account: the server
+hands a browser a credential it never asked for, and a report is
+attributed to whichever credential the request carried. One resident,
+two browsers, is two pseudonyms — the same way two people testing this
+app from two separate sessions will see themselves told apart. See
+`notes/adr/0002-identity-and-permissions.md`.
 
 ## What we chose not to build
 
 Verified resident identity, and any booking or reservation system — a
-status layer, not a scheduler. Otter Room's, Rabbit Room's, Weasel
-Room's, and Badger Room's own paper sign-up sheets on the door are
-real-world artifacts Toad Live deliberately doesn't digitize; each shows
-its room's state right now, never a future reservation. Rat Room has no
-sign-up sheet to decline digitizing in the first place — no reservation
-mechanism of any kind exists for it, paper or otherwise. Real-time
-delivery and concurrency were decided at Crit 9, identity at Crit 10,
-both verified live. Presence stays out of scope.
+status layer, not a scheduler. The paper sign-up sheets several rooms
+already have on their doors are real-world artifacts this app
+deliberately doesn't digitize. Presence stays out of scope.
 
 ## Enforced vs. judged
 
-`spec/` enforces that a report survives an independent later request, a
-malformed timestamp or stale `ifVersion` is rejected (409), a report
-reaches another open session within a second, and a forged actor claim
-is rejected server-side. `CLAUDE.md` records laundry's fixed five-room,
-four-state model, decay never touching out-of-order, and identity as
-server-verified possession of a credential, never a client's own claim.
-Left to a person: whether the freshness language reads honest, and
-whether a reader of `flyctl logs` alone can tell two residents apart —
-rehearsed live.
+`spec/` enforces persistence, concurrency (a stale write gets 409, never
+a silent overwrite), sub-second delivery to other open sessions, and
+that a client can never assert someone else's identity. `CLAUDE.md`
+records the facts the code must never contradict: Laundry's fixed
+five-location/ten-machine layout, decay never touching out-of-order,
+identity as server-verified possession of a credential. Left to a
+person: whether the freshness language reads honest, and whether a
+reader of `flyctl logs` alone can tell two residents apart — rehearsed
+live.
 
 ---
 
-*Published in full at `/readme/`. First version, expected to change.*
+*Published in full at `/readme/`.*
