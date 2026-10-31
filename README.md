@@ -27,7 +27,10 @@ already knows "Block C."
 If checking the app takes longer than walking there, nobody uses it.
 Pick a tab, see that room's current state and, where known, how long it
 has left. Reporting needs no account: choose the facility, update the
-relevant room or seat, and submit.
+relevant room or seat, and submit. The app becomes more useful when
+several residents use it at the same time: one person's report becomes
+another person's fresh context. Without that shared loop, it would be
+closer to a private diary than a live community tool.
 
 ## Freshness is part of the information, not an afterthought
 
