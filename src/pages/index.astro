@@ -1380,6 +1380,24 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
         gap: 0.6rem;
       }
+      /* Post-freeze fix: ten seat cards are taller, in aggregate, than
+         every other facility's own panel content, so this is the first
+         facility to actually exceed the desktop workbench's fixed
+         `main { height: 100dvh; overflow: hidden }` cap (see that rule's
+         own note) — a real production bug found after shipping: seats
+         A-D were visible, E-J fell below the panel's clipped bottom edge
+         with no way to reach them. .halls already solves exactly this
+         for Laundry (the ONE element inside .info-panel that scrolls,
+         summary pinned above it — see .halls's own note); .rat-room-seats
+         gets the identical treatment here, scoped to Rat Room alone, so
+         no other facility's panel gains a scrollbar or layout change. */
+      @media (min-width: 64rem) {
+        .rat-room-seats {
+          flex: 1 1 auto;
+          min-height: 0;
+          overflow-y: auto;
+        }
+      }
       .rat-room-seat {
         position: relative;
         min-width: 0;
