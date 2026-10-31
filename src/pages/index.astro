@@ -85,8 +85,8 @@ const weaselRoom = getWeaselRoom();
 // semantics as Otter Room, Rabbit Room, and Weasel Room (ADR 0007
 // independently confirmed the same occupancy+optional-expectedEndAt
 // model for this room's own facts), reusing the same "plain page-load
-// read, kept live by its own script" pattern. No 3D scene yet — see the
-// placeholder left pane below. See
+// read, kept live by its own script" pattern. Has its own real 3D
+// diorama (see src/lib/hall-view/badger-room.ts). See
 // notes/adr/0007-badger-room-live-state.md.
 const badgerRoom = getBadgerRoom();
 
@@ -98,8 +98,9 @@ const badgerRoom = getBadgerRoom();
 // structural sibling, not Otter/Rabbit/Weasel/Badger Room's. No
 // room-level occupancy is ever stored — ratRoomSummary below is purely
 // derived from these same ten seats, recomputed fresh on every page
-// load and, client-side, on every SSE update (ADR 0008, Decision 4). No
-// 3D scene yet — see the placeholder left pane below.
+// load and, client-side, on every SSE update (ADR 0008, Decision 4). Has
+// its own real 3D diorama (see src/lib/hall-view/rat-room.ts), reading
+// only this derived summary's `visual`, never an individual seat.
 const ratRoomSeats = listRatRoomSeats();
 const ratRoomSummary = summarizeRatRoomSeats(ratRoomSeats);
 const ratRoomSummaryParts = ratRoomSummaryPartsFor(ratRoomSummary);
@@ -499,16 +500,12 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       }
 
       /* --- Stage 6: facility tabs — Toad Live's original concept was
-         every shared space in Toad Hall, not laundry specifically.
-         Laundry and (Stage 2) AA Room are real, data-backed tabs; the
-         other five are visible so the eventual shape of the app is
-         legible, but are inert — no route, no placeholder page, no
-         invented data. Plain <button disabled> for those (not a
-         styled-to-look-clickable link to nowhere), so assistive tech and
-         a mouse both get an honest "not available yet" signal for free.
-         The two real tabs are plain, clickable, non-disabled buttons —
-         cursor:pointer below overrides the default cursor:default only
-         for them. --- */
+         every shared space in Toad Hall, not laundry specifically. All
+         seven facilities (Laundry, AA Room, Otter Room, Rabbit Room,
+         Weasel Room, Badger Room, Rat Room) are now real, data-backed,
+         enabled tabs — no facility remains disabled or inert. Every tab
+         is a plain, clickable, non-disabled button; cursor:pointer below
+         applies to all of them. --- */
       .facility-tabs {
         flex: none;
         display: flex;
@@ -564,11 +561,6 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       .facility-tab[aria-current="page"]:hover {
         background: var(--accent-strong);
         border-color: var(--accent-strong);
-      }
-      .facility-tab:disabled {
-        color: var(--ink-muted);
-        opacity: 0.55;
-        cursor: not-allowed;
       }
 
       /* --- Stage 6: the 70/30 desktop workbench — left column is the
@@ -2163,7 +2155,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
               type="number"
               name="minutes"
               min="1"
-              max="240"
+              max={OTTER_ROOM_MAX_OCCUPIED_MS / 60000}
               placeholder="minutes left (optional)"
               aria-label="Expected minutes remaining, optional"
               disabled={otterRoom.occupancy !== "occupied"}
@@ -2248,7 +2240,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
               type="number"
               name="minutes"
               min="1"
-              max="240"
+              max={RABBIT_ROOM_MAX_OCCUPIED_MS / 60000}
               placeholder="minutes left (optional)"
               aria-label="Expected minutes remaining, optional"
               disabled={rabbitRoom.occupancy !== "occupied"}
@@ -2333,7 +2325,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
               type="number"
               name="minutes"
               min="1"
-              max="240"
+              max={WEASEL_ROOM_MAX_OCCUPIED_MS / 60000}
               placeholder="minutes left (optional)"
               aria-label="Expected minutes remaining, optional"
               disabled={weaselRoom.occupancy !== "occupied"}
@@ -2418,7 +2410,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
               type="number"
               name="minutes"
               min="1"
-              max="240"
+              max={BADGER_ROOM_MAX_OCCUPIED_MS / 60000}
               placeholder="minutes left (optional)"
               aria-label="Expected minutes remaining, optional"
               disabled={badgerRoom.occupancy !== "occupied"}
@@ -2523,7 +2515,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
                     type="number"
                     name="minutes"
                     min="1"
-                    max="240"
+                    max={RAT_ROOM_SEAT_MAX_OCCUPIED_MS / 60000}
                     placeholder="minutes left (optional)"
                     aria-label={`Seat ${seat.seat} expected minutes remaining, optional`}
                     disabled={seat.occupancy !== "occupied"}
