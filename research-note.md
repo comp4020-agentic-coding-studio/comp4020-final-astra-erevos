@@ -1,0 +1,25 @@
+# Good Agentic Development Needs Limits, Feedback and Judgement
+
+A lot of discussion about coding agents focuses on autonomy. The agent can use more tools, work for longer, open files, run tests and even deploy software by itself. This is impressive, but I do not think more autonomy is a useful goal by itself. The better question is how much freedom we can give an agent without losing the ability to understand, test and correct what it does. Good agentic development needs autonomy, but it also needs a harness that makes mistakes visible and keeps important decisions reviewable.
+
+Böckeler describes this through “harness engineering”. The model is only one part of the system; the surrounding harness gives it context, tools, rules and feedback. Anthropic’s work on agent evals fits into the same picture. Evals turn expectations into repeatable tasks and graders, so failures can be found again instead of disappearing inside a long agent session. These ideas work well together: the harness gives the agent an environment to work in, while evals are one way of checking what happens inside that environment. But tests are strong only when we already know what result to ask for. Anthropic itself places evals beside production monitoring, user feedback and human review, which shows that automated checking is not enough on its own.
+
+There is a strong argument on the other side. Human review can easily become the bottleneck. If future agents are more reliable, stopping them after every small step may waste much of the speed that makes them useful. A developer who has to approve every file edit is not really gaining much autonomy from the system. In that case, better models, better evals and stronger permissions could allow the agent to work for much longer without interruption. I agree with this up to a point. The mistake is to treat less frequent supervision as the same thing as less human judgement. A good harness should remove routine interruptions, but it should also make the important moments easier to notice.
+
+This is where human judgement still matters. Ericsson, Krampe and Tesch-Römer argue that expertise develops through difficult practice, specific feedback and repeated correction. Their study was not about coding agents, so I would not use it as direct evidence about AI-assisted programming. It is still useful because it raises a problem that current agent tools do not solve for us. If developers give away every difficult judgement, they may produce software faster while becoming less able to recognise a bad design or a badly chosen test. A green test suite can show that stated requirements were met. It cannot decide whether those were the right requirements.
+
+Cognition’s writing on multi-agent systems gives a practical example of the same limit. More agents sound like more capability, but Cognition reports that parallel writers can create fragmented decisions and conflicting context. Their useful pattern is narrower: different agents can search, review and contribute information, while writes stay mainly single-threaded. I find this more convincing than the idea of an unrestricted swarm because it treats coordination as an engineering cost. Extra autonomy is useful when work can be separated clearly. When several agents are changing the same thing, the extra capacity can create more repair work than it removes.
+
+The sources here are not equal. Ericsson is older scholarly research about expertise, while Böckeler, Anthropic and Cognition are practitioner sources from organisations building or using agentic systems. The practitioner material is useful because this field is moving faster than peer review, but these organisations also have reasons to present agentic tools positively. I would therefore treat their writing as evidence about current practice, not as universal rules. What is more convincing is where different sources point in the same direction: useful autonomy depends on feedback, clear boundaries and people who still know when the system is wrong.
+
+For me, good agentic software development is not maximum autonomy. It is selective autonomy. Routine implementation, searching, testing and repeated checks can move toward the agent. Human attention can move upward to architecture, product decisions, unusual failures and the definition of “done”. A stronger harness should let the agent work more independently without making human judgement unnecessary. The future of the field is likely to be a better division of responsibility, not simply fewer humans in the loop.
+
+## References
+
+Anthropic. (2026). *Demystifying evals for AI agents*.
+
+Böckeler, B. (2026). *Harness engineering for coding agent users*. Martin Fowler.
+
+Ericsson, K. A., Krampe, R. Th., & Tesch-Römer, C. (1993). The role of deliberate practice in the acquisition of expert performance. *Psychological Review, 100*(3), 363–406.
+
+Yan, W. (2026). *Multi-Agents: What’s Actually Working*. Cognition.
