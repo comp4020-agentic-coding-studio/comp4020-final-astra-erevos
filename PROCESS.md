@@ -469,11 +469,11 @@ conference-table chair slots rather than inventing furniture-free
 standing room, so a seated figure always reads as sitting at the table,
 not floating in open floor space.
 
-Not yet shipped to Fly — this milestone stops at local verification (see
-the ADR's own Verification section for the full automated/manual detail)
-with production smoke testing deliberately deferred to its own close-out
-step, the same staged-commit discipline every prior facility's milestone
-followed.
+Local verification came first — the same staged-commit discipline every
+prior facility's milestone followed, with production smoke testing
+deliberately run as its own close-out step rather than folded into the
+same commit (see the ADR's own Verification section for the full
+automated/manual detail).
 
 Shipped to Fly on production version 40, CI green on the first try (run
 `41079082720`). A post-deploy smoke check against the live URL confirmed
@@ -616,4 +616,6 @@ provisional 12-hour window — stays open pending real cycle-time data,
 tracked in `notes/FINAL_PROJECT_SOURCE_OF_TRUTH.md` §10. Verified
 resident identity is a possible later upgrade, not a current gap.
 Presence remains out of scope. All seven facilities are now implemented
-locally; Rat Room alone still awaits production shipping.
+and production-verified; facility expansion is complete. What remains is
+final polish, presentation, and rehearsal, not shipping any further
+facility.

@@ -1,11 +1,19 @@
 # ADR 0003: AA Room's shared live state
 
-**Status**: Decided, with one design correction (see "Design correction,
-v2" below) made after Stage 4's 3D work exposed that v1's single-activity
-model didn't match how the room is actually used. Everything in Decision
-2's occupancy rules, Decision 3's freshness model, and Decision 4's
-inherited house-wide rules stands unchanged; Decision 1 and part of
-Decision 2's activity list are superseded by the correction.
+**Status**: Implemented and verified live, with one design correction
+(see "Design correction, v2" below) made after Stage 4's 3D work exposed
+that v1's single-activity model didn't match how the room is actually
+used. Everything in Decision 2's occupancy rules, Decision 3's freshness
+model, and Decision 4's inherited house-wide rules stands unchanged;
+Decision 1 and part of Decision 2's activity list are superseded by the
+correction. Verified live in the deployment headed by `d824aec` (CI
+green, production version 34) — `PROCESS.md`'s own "Otter Room" entry,
+which that commit closes out, records the post-deploy smoke check that
+confirmed AA Room's report flow and cross-session SSE sync working live,
+not just locally — and every facility-regression smoke check run for
+each later facility (Rabbit Room through Rat Room) has continued to
+re-confirm AA Room alongside the newer work — see each of those
+milestones' own entries in `PROCESS.md`.
 
 ## Design correction, v2 — multiple simultaneous activities
 
@@ -682,22 +690,29 @@ squeezed into the `machines` shape — the right call given Decision 1's
 model is genuinely different (no per-location rows, no `expected_end_at`
 concept), but it does mean the panel and 3D-scene code introduce a second
 state shape to keep in sync with the server, not a drop-in reuse of
-Laundry's `applyMachineUpdate()`. The single-optional-activity limitation
-(Decision 1's cost) means a resident reporting `pool` while the TV is
-genuinely also on will, correctly per this design, overwrite the TV
-report — a real information loss this ADR accepts for v1 rather than
-hides. The binary occupancy choice (Decision 2) trades away the richer
-"how full" signal tri-level would give, in exchange for reports that
-don't require two honest residents to agree on a subjective word. Every
-report expiring, `empty` included (Decision 3), means AA Room's `unknown`
-state will appear more often, proportionally, than Laundry's — this is
-judged correct given the room's actual volatility, not a flaw to tune
-away by making decay more lenient than the facts warrant.
+Laundry's `applyMachineUpdate()`. The binary occupancy choice (Decision
+2) remains a deliberate simplification, trading away the richer "how
+full" signal tri-level would give in exchange for reports that don't
+require two honest residents to agree on a subjective word. Under the
+current (v2) `activities: AaRoomActivity[]` model, multi-activity
+reporting means a resident reporting `pool` while the TV is genuinely
+also on no longer overwrites the TV report — the single-optional-activity
+limitation v1 accepted as a real information loss is resolved, at the
+cost of a slightly higher reporting cost: an occupied report now chooses
+one or more activity tags rather than at most one. `event` remains the
+one exception, still exclusive with everything else, because a formal,
+dorm-run event is a genuinely different fact about the room than
+incidental simultaneous TV/pool/table-tennis/hanging-out use (Design
+correction, v2). Every report expiring, `empty` included (Decision 3),
+means AA Room's `unknown` state will appear more often, proportionally,
+than Laundry's — this is judged correct given the room's actual
+volatility, not a flaw to tune away by making decay more lenient than the
+facts warrant; this consequence is unchanged by the v2 correction.
 
-## Verification plan (not yet run — nothing is implemented)
+## Verification (completed)
 
-Once built, this ADR expects coverage mirroring ADR 0001/0002's own
-verification, staged per PROCESS.md's convention:
+Coverage mirroring ADR 0001/0002's own verification, staged per
+PROCESS.md's convention:
 
 - automated: a persistence test (a report survives an independent later
   `GET`, mirroring Crit 8's own laundry check); `ifVersion`/409 conflict
@@ -711,9 +726,9 @@ verification, staged per PROCESS.md's convention:
   tests mirroring `spec/identity.test.ts` (no session → 401, forged actor
   field → 400).
 
-  **The 45-minute decay transition itself is harder to test and is left
-  an open implementation question, not glossed over.** Checked directly
-  rather than assumed: `spec/decay.test.ts`'s existing decay test does
+  **The 45-minute decay transition itself was harder to test, and the
+  question of how was worked through rather than glossed over.** Checked
+  directly rather than assumed: `spec/decay.test.ts`'s existing decay test does
   **not** backdate a timestamp — it reports a *real*, short
   `expectedEndAt` (`SAFE_FUTURE_MS`, ~1 second) and polls with ordinary
   reads until decay actually fires, which works there only because a
@@ -726,22 +741,27 @@ verification, staged per PROCESS.md's convention:
   `spec/request-protocol.test.ts`'s own comment notes that importing
   `db.ts` from a spec file opens a second, independent SQLite connection,
   which is exactly the complication the current `spec/` tests avoid by
-  staying HTTP-only. Two honest paths forward, to be decided at
-  implementation time rather than here: (a) make the 15/45-minute
+  staying HTTP-only. Two honest paths were open: (a) make the 15/45-minute
   constants overridable via an environment variable the way nothing in
   this codebase currently does, so a test can set a sub-second threshold
   and use `spec/decay.test.ts`'s own real-wait-and-poll pattern against
   it; or (b) keep the threshold fixed and test the decay *transition's*
   SQL logic directly against a throwaway `DatabaseSync` instance outside
   `spec/`'s HTTP-only convention (closer to a true unit test, further
-  from how every existing spec file is structured). Whichever is chosen,
-  it must still exercise the real `decayedAaRoom()` code path, not a
-  reimplementation of its logic in the test;
+  from how every existing spec file is structured). **Path (b) was taken:**
+  `spec/aa-room-decay.test.ts` builds its own throwaway in-memory database
+  and calls the real `getAaRoom()`/`reportAaRoomStatus()` against it with
+  a constructed `now`, exercising the actual `decayedAaRoom()` code path
+  directly rather than a reimplementation of its logic in the test — the
+  same throwaway-store technique every later occupancy room's own
+  `*-decay.test.ts` file has since used;
 - an SSE test confirming an already-open stream receives `event: aa-room`
   on a resident report, using the same connect-before-mutate pattern
-  `spec/realtime.test.ts` now uses (see `885da13`). The equivalent
-  decay-delivery case is subject to the same open question above, since
-  it needs the same 45-minute transition to actually fire;
+  `spec/realtime.test.ts` now uses (see `885da13`); the equivalent
+  decay-delivery case exercises the same `spec/aa-room-decay.test.ts`
+  throwaway-store technique resolved above;
 - manual, live: two Chrome profiles reporting AA Room state and
   confirming each other's update arrives without reload, narrated from
-  `flyctl logs` exactly as ADR 0002's Crit 10 verification was.
+  `flyctl logs` exactly as ADR 0002's Crit 10 verification was — part of
+  the same post-deploy smoke check `PROCESS.md`'s "Otter Room" entry
+  records for `d824aec`.

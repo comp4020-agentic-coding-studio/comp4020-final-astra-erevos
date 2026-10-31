@@ -11,16 +11,19 @@ to Fly and verified live — see the Verification section below for what
 was actually run, and `PROCESS.md`'s own Rat Room entry for what the
 milestone taught beyond this document's frozen decisions.
 
-**This ADR's conclusion looks structurally different from every room ADR
-since AA Room (0003–0007), and that difference is the point.** Otter
-Room, Rabbit Room, Weasel Room, and Badger Room are each a single shared
-space with one occupancy fact — "is the room in use right now." Rat
-Room's own stated facts ask a different question: not "is the room in
-use," but **"how many of its ~10 seats are free right now."** That is
-not a wording difference — it changes which resource this ADR's state
-model actually attaches to. Resolved below (Decision 1) by re-deriving
-from Rat Room's own facts, not by assuming the five-room pattern
-automatically extends to a sixth live-state facility.
+**Rat Room is Toad Live's seventh facility, and its conclusion looks
+structurally different from every room ADR since AA Room (0003–0007) —
+not because of where it falls in that count, but because of what its own
+facts are.** Otter Room, Rabbit Room, Weasel Room, and Badger Room are
+each a single shared space with one occupancy fact — "is the room in use
+right now." Rat Room's own stated facts ask a different question: not
+"is the room in use," but **"how many of its ~10 seats are free right
+now."** That is not a wording difference — it changes which resource
+this ADR's state model actually attaches to. Resolved below (Decision 1)
+by re-deriving from Rat Room's own facts, not by assuming the
+single-room occupancy pattern Otter/Rabbit/Weasel/Badger Room share
+automatically extends here: Rat Room's difference comes from resource
+granularity, not from its position in the facility count.
 
 ## Context
 
@@ -577,7 +580,7 @@ prior room's own Decision on rejected fields already made — if printer
 queueing or seat booking ever becomes a real, stated need, that is a new
 decision with its own ADR, not a default this one quietly assumes.
 
-## Verification (completed — local only, production verification pending)
+## Verification (completed — local and live)
 
 Run across three staged, independently-reviewed commits (backend →
 practical panel → 3D), mirroring every prior room ADR's own staged
