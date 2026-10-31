@@ -534,7 +534,9 @@ incident, not a new fix.** `rat-room.ts`/`rat-room-db.ts` followed
 the *sixth* `*-decay.test.ts` file never came close to reintroducing the
 SQLite-lock race Rabbit Room's own arrival once caused — verified
 directly, all six decay specs run in parallel repeatedly with zero lock
-errors. The seventh SSE event needed a genuine, new piece of code,
+errors, and CI's own run against the final scale (seven facilities, 261
+tests, six decay specs) went first-try green with the race still absent.
+The seventh SSE event needed a genuine, new piece of code,
 though, not just another name: every prior event payload carried either
 a `machine` or a `room`, so `src/pages/api/stream.ts`'s dispatch logic
 went from a two-way to a real three-way distinction
@@ -586,10 +588,26 @@ rule change.
 
 Shipped as three separate, independently-reviewed commits — backend,
 practical panel, 3D scene — the same staged-commit discipline every
-facility since Otter Room has used. Not yet shipped to Fly: this
-milestone stops at local verification, with production smoke testing
-deferred to its own close-out step, the same deferral Badger Room's own
-milestone made.
+facility since Otter Room has used.
+
+Shipped to Fly on production version 42, CI green on the first try
+(run `41120102605`, 261/261 across all six decay spec files, zero
+`database is locked`). A post-deploy smoke check against the live URL
+confirmed all seven facilities' panel and 3D, both of Decision 4's
+aggregate-precedence cases live (not just the all-empty/all-occupied
+extremes), two-session per-seat SSE and concurrency, and a clean
+`flyctl logs` trace with each seat's own `version` advancing
+independently. The one real gap a page reload can't close — proving the
+actual `EventSource` reconnect/`open` path recovers all ten seats, not
+just that a fresh page load does — was closed by restarting the Fly
+machine to force a genuine server-side disconnect and watching the
+instrumented `EventSource` instance's own `readyState` transition
+`OPEN → error → OPEN` with no page reload; a first attempt using
+Playwright's offline emulation had looked like a pass but was a false
+positive, since Chromium doesn't interrupt an already-open streaming
+response with no periodic keep-alive to fail on. No production-only
+product bug surfaced. See the ADR's own Verification section for the
+full detail.
 
 ## What's still ahead
 

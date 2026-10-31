@@ -1,15 +1,15 @@
 # ADR 0008: Rat Room's shared live state
 
-**Status**: Implemented and verified locally — production verification
-pending. This ADR fixed the state model, statuses, and decay rules for
-Toad Live's seventh facility before any schema, API, or UI work began,
-the same order ADR 0001/0002/0003/0004/0005/0006/0007 each used (see
-`PROCESS.md`'s "Rewritten each time the project's shape genuinely
-changed" convention). Backend, practical panel, and 3D scene have since
-shipped as three separate commits and been verified against this ADR's
-own decisions — see the Verification section below for what was actually
-run, and `PROCESS.md`'s own Rat Room entry for what the milestone taught
-beyond this document's frozen decisions.
+**Status**: Implemented and verified live. This ADR fixed the state
+model, statuses, and decay rules for Toad Live's seventh facility before
+any schema, API, or UI work began, the same order ADR
+0001/0002/0003/0004/0005/0006/0007 each used (see `PROCESS.md`'s
+"Rewritten each time the project's shape genuinely changed" convention).
+Backend, practical panel, and 3D scene shipped as three separate
+commits, verified locally against this ADR's own decisions, then shipped
+to Fly and verified live — see the Verification section below for what
+was actually run, and `PROCESS.md`'s own Rat Room entry for what the
+milestone taught beyond this document's frozen decisions.
 
 **This ADR's conclusion looks structurally different from every room ADR
 since AA Room (0003–0007), and that difference is the point.** Otter
@@ -736,7 +736,109 @@ same staged order every prior room's own 3D work used:
   working with each facility's own canvas mounting correctly and zero
   console errors throughout.
 
-Production verification remains **pending** — this milestone stops at
-local verification, the same staged-commit discipline Badger Room's own
-milestone used (`PROCESS.md`): a live Fly smoke check is a separate,
-later close-out step.
+**Production verification (completed).** CI run
+[`41120102605`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/actions/runs/41120102605)
+— triggered by the push carrying all five Rat Room commits — went green
+on the first try with zero reruns: `check` passed **261/261** across all
+six `*-decay.test.ts` files (AA, Otter, Rabbit, Weasel, Badger, Rat) with
+zero `database is locked` errors, and `deploy` succeeded, shipping Fly
+**production version 42**.
+
+Verified against the live URL
+(`https://comp4020-final-astra-erevos.fly.dev`), using real Playwright
+browser sessions against production, not a local build:
+
+- all seven facilities' panel and 3D round-tripped cleanly
+  (Laundry → AA → Otter → Rabbit → Weasel → Badger → Rat → Laundry),
+  including re-confirming Otter Room's and Rabbit Room's whiteboards
+  show no z-fighting and Otter Room's occupied-state marker strokes still
+  render correctly in front of the board;
+- `/readme/` returns `200` and shows "Seven facilities" and the Rat Room
+  entry;
+- Rat Room's own ten A–J seat cards and 3D scene render correctly
+  against live production data (not a fresh seed — production already
+  carried state from this very verification pass, confirming the panel
+  correctly reflects whatever the real database holds rather than
+  assuming a known starting state);
+- all three per-seat report shapes verified live: `empty`, `occupied`
+  with an estimate (shows "N min left"), `occupied` with no estimate
+  (shows "remaining time unknown");
+- both aggregate precedence cases named in Decision 4 verified live, not
+  only inferred from the all-empty/all-occupied extremes: 9 empty + 1
+  unknown produced panel text "9 seats confirmed free · 1 unknown" and
+  derived visual `unknown` (no figures, dimmed); 6 empty + 2 occupied + 2
+  unknown produced "6 seats confirmed free · 2 unknown" and derived
+  visual `occupied` (fixed figures visible) — confirming occupied
+  correctly wins precedence over unknown in both the panel and the scene
+  on the live site, not just in unit tests. (Production gives no direct
+  database access and `unknown` is intentionally not a reportable `PATCH`
+  value, so each `unknown` seat was produced via genuine lazy decay — an
+  `occupied` report with `expectedEndAt` a few seconds out, left to
+  expire, then read — a real product code path compressed in time, not a
+  fabricated state.)
+- figure count/position invariance re-confirmed live across different
+  occupied-seat combinations (only seat A occupied vs. only seat H
+  occupied rendered visually identical scenes);
+- `expectedEndAt` independence re-confirmed live (an occupied seat with
+  vs. without an estimate rendered visually identical scenes);
+- two independent browser sessions, each its own server-issued
+  pseudonym, exchanged live per-seat updates with no reload and no
+  cross-seat leakage in either direction;
+- concurrency verified live: a same-seat stale `ifVersion` returned `409`
+  with the current canonical state, leaving every other seat's version
+  untouched; two different seats patched with their own current versions
+  both succeeded with no false conflict;
+- invalid-report handling verified live via direct `fetch`, not the UI:
+  `occupancy: "unknown"` on `PATCH` → `400`; an invalid seat id
+  (`/api/rat-room/Z`) → `404`; the composite DB id
+  (`/api/rat-room/rat-room-a`) → `404`;
+- **the actual `EventSource` reconnect/`open` path, not a page reload,
+  verified live against a genuine server-side disconnect.** An initial
+  attempt using Playwright's context-level offline emulation produced a
+  false positive: direct instrumentation of the real `EventSource`
+  instance (wrapping the global constructor via an init script to log
+  `readyState` transitions with timestamps) showed `readyState` never
+  left `OPEN` and the page kept receiving live updates throughout the
+  supposed "outage" — Chromium's offline emulation does not interrupt an
+  already-established streaming HTTP response with no periodic
+  keep-alive to fail on, which this app's SSE stream correctly doesn't
+  send (ADR 0001's one-time `: connected` comment is sent once on
+  connect, not repeated). The same instrumentation was then run against a
+  **real** disconnect: restarting the Fly production machine
+  (`flyctl machines restart`), which terminates every open server-side
+  connection. This produced a genuine, observed `OPEN → error/CONNECTING
+  → OPEN` transition (confirmed by the captured `EventSource` event log
+  and timestamps, plus the browser's own `net::ERR_HTTP2_PROTOCOL_ERROR`
+  console entry marking the killed connection — the expected transport
+  signal that *causes* the reconnect, not an application error). With no
+  page reload at any point, the reconnected session's `onOpen()` handler
+  re-fetched all ten seats and recovered exactly the canonical state a
+  second session had set on three different seats during the outage, and
+  the summary recalculated correctly — the real behavior
+  `onOpen()`/`onRatRoomEvent()` (`src/lib/live-stream.ts`,
+  `src/pages/index.astro`) was built for, now confirmed under conditions
+  a page reload cannot distinguish from an ordinary initial load;
+- a full `occupied → empty → unknown → occupied` cycle was screenshotted
+  live at each step and showed zero residue;
+- reduced motion verified live: two screenshots 1.5 seconds apart under
+  `prefers-reduced-motion: reduce` were byte-identical while still
+  showing the correct occupied figures;
+- zero genuine console/page JS errors across every live session (the one
+  console entry logged during the forced-restart reconnect test is the
+  expected transport failure, not an application error);
+- `flyctl logs` confirmed every expected field and outcome: `seat=`
+  correct on every line, distinct pseudonyms per session, `result=ok` on
+  accepted reports and `result=conflict` on the one deliberate stale
+  write (correctly scoped to the one targeted seat), and — the specific
+  thing this ADR's Decision 6 commits to and a future reader should not
+  assume away — **each of the ten seats' own `version` advanced
+  independently**, confirmed directly in the log stream (e.g. seat A and
+  seat B sitting at different version numbers at the same wall-clock
+  moment), never a single room-wide monotonic counter the way a
+  single-row room's logs would show. Zero `error`/`exception`/`database
+  is locked`/crash lines anywhere in the log window.
+
+No production-only issue was found. This is the first time this
+project's SQLite-isolation fix (`91167bd`) has been exercised in CI at
+its final scale — seven live facilities, 261 tests, six parallel decay
+spec files — and it held with zero lock errors, first try.
