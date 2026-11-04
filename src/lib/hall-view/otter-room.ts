@@ -329,6 +329,47 @@ export function buildOtterRoom(): OtterRoomHandle {
   }
   group.add(heaterGroup);
 
+  // --- Door threshold, on the EAST wall's own floor edge — the open front
+  // already *is* the doorway for every room in this app, so this is a
+  // floor marking, not a wall opening: a contrasting threshold strip plus
+  // two short jamb posts, same construction as rat-room.ts's,
+  // badger-room.ts's, weasel-room.ts's, and rabbit-room.ts's own door
+  // threshold.
+  //
+  // Two wrong attempts before this one, both caught by actually projecting
+  // this room's own floor corners through the fixed isometric camera
+  // (ISO_VIEW_DIRECTION in scene.ts) rather than assumed from world-space
+  // axis labels:
+  //  1. DOOR_X = ROOM_WIDTH/2 - 0.65, slid along the south (open-front)
+  //     edge like every other room's door — projects to screen NDC
+  //     x ≈ -0.09, still left of screen-center.
+  //  2. DOOR_X = ROOM_WIDTH/2 - 0.55, same south-edge placement pushed as
+  //     far toward the east wall as that edge allows — projects to NDC
+  //     x ≈ -0.05, better but still short of the room's true bottom-right.
+  // The real issue: in this fixed iso view the floor renders as a diamond
+  // whose screen-rightmost point is the BACK-right (north-east) corner
+  // (world x=+1.7, z=-1.4 → NDC x≈+0.64) and whose screen-bottommost point
+  // is the FRONT-right (south-east) corner (x=+1.7, z=+1.4 → NDC y≈-0.90).
+  // The screen's bottom-right region is the EAST wall's own floor edge
+  // (the segment joining those two corners), not the south edge most other
+  // rooms' doors sit on — so the threshold needs to be rotated 90° (long
+  // axis along Z, following the east wall) and placed along that edge
+  // instead of slid along the south edge.
+  const thresholdMaterial = new THREE.MeshStandardMaterial({ color: 0xc1652f, roughness: 0.6 });
+  const DOOR_X = ROOM_WIDTH / 2 - 0.16; // threshold's own east edge 0.05 clear of the east wall (checked, not eyeballed)
+  const DOOR_Z = ROOM_DEPTH / 2 - 0.6; // south end of the strip 0.1 clear of the open front, matching every other room's own clearance
+  const threshold = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.02, 1.0), thresholdMaterial);
+  threshold.position.set(DOOR_X, 0.011, DOOR_Z);
+  group.add(threshold);
+  const jambMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5c47, roughness: 0.6 });
+  const jambNorth = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.06), jambMaterial);
+  jambNorth.position.set(DOOR_X, 0.15, DOOR_Z - 0.5);
+  jambNorth.castShadow = true;
+  group.add(jambNorth);
+  const jambSouth = jambNorth.clone();
+  jambSouth.position.set(DOOR_X, 0.15, DOOR_Z + 0.5);
+  group.add(jambSouth);
+
   // Freshness's `dim` is applied as a flat multiplier against each
   // surface's own base color (never touching roughness/other properties)
   // — paired here, once, with the base hex each material actually started
