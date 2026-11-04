@@ -393,6 +393,35 @@ export function buildRabbitRoom(): RabbitRoomHandle {
 
   group.add(kitchenGroup);
 
+  // --- Door threshold, SOUTH-WEST corner — the open front already *is*
+  // the doorway for every room in this app, so this is a floor marking,
+  // not a wall opening: a contrasting threshold strip plus two short
+  // jamb posts, same construction as rat-room.ts's, badger-room.ts's,
+  // and weasel-room.ts's own door threshold. Offset toward the west wall,
+  // scaled to this room's own narrower 2.6-wide footprint (DOOR_X =
+  // -ROOM_WIDTH/2 + 0.65, half Rat Room's own +0.9 offset since this
+  // room's own half-width, 1.3, is itself about half Rat Room's). Real
+  // clearance checked numerically, not by eye: the west-wall whiteboard's
+  // own Z-extent (1.7 to 2.7, from its own z=2.2 center ± its own 0.5
+  // half-width) sits 0.09 clear of the threshold's own Z-extent (2.79 to
+  // 3.01, from DOOR_Z=2.9 ± the threshold's own 0.11 half-depth); both
+  // jamb posts sit 0.15 clear of the west wall and well short of the
+  // room's own centered table/chairs. ---
+  const thresholdMaterial = new THREE.MeshStandardMaterial({ color: 0xc1652f, roughness: 0.6 });
+  const DOOR_X = -ROOM_WIDTH / 2 + 0.65;
+  const DOOR_Z = ROOM_DEPTH / 2 - 0.1;
+  const threshold = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.02, 0.22), thresholdMaterial);
+  threshold.position.set(DOOR_X, 0.011, DOOR_Z);
+  group.add(threshold);
+  const jambMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5c47, roughness: 0.6 });
+  const jambLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.06), jambMaterial);
+  jambLeft.position.set(DOOR_X - 0.5, 0.15, DOOR_Z);
+  jambLeft.castShadow = true;
+  group.add(jambLeft);
+  const jambRight = jambLeft.clone();
+  jambRight.position.set(DOOR_X + 0.5, 0.15, DOOR_Z);
+  group.add(jambRight);
+
   // Dim is applied as a flat multiplier against each surface's own base
   // color (never touching roughness/other properties) — paired here, once,
   // with the base hex each material actually started from, same technique

@@ -225,80 +225,336 @@ export function buildWeaselRoom(): WeaselRoomHandle {
   // --- Guitar, leaning in the back-left corner — the one corner formed by
   // the two walls that are BOTH actually visible (back + left), so it
   // reads clearly against real wall surfaces rather than floating near an
-  // invisible one. A low-poly figure-8 silhouette (two flattened spheres,
-  // overlapping) plus a neck and headstock, not a single undifferentiated
-  // rod — tilted via a nested group so the lean pivots from the floor
-  // contact point, and rotated to face diagonally into the room (matching
-  // the camera's own 45-degree azimuth) so its body profile, not its
-  // edge, is what the camera actually sees. ---
-  const guitarBodyMaterial = new THREE.MeshStandardMaterial({ color: 0xa6692f, roughness: 0.6 });
+  // invisible one. Visual pass, 2nd attempt: the 1st attempt stacked three
+  // separate squashed spheres (lower bout, waist, upper bout) — a real
+  // screenshot showed this reads as a gourd/calabash, not a guitar, because
+  // three independently-overlapping blobs leave visible seams instead of
+  // one continuous curve, and a dark pickguard disc positioned across
+  // those seams poked past the blobs' own uneven silhouette, showing up as
+  // an unexplained dark patch near the lower-right of the body. Fixed here
+  // by actually drawing the body's outline as a single closed curve — a
+  // THREE.Shape traced through the real lower-bout/waist/upper-bout/
+  // shoulder profile with bezierCurveTo, then THREE.ExtrudeGeometry gives
+  // it real thickness with a beveled edge — one continuous silhouette,
+  // no seams, no stray disc. The pickguard is dropped entirely rather
+  // than risk a second placement bug on the same spot; sound hole, bridge,
+  // fret markers, headstock, tuning pegs, and strings are kept and
+  // repositioned against the new shape's own coordinates. Still tilted via
+  // a nested group so the lean pivots from the floor contact point, and
+  // rotated to face diagonally into the room (matching the camera's own
+  // 45-degree azimuth) so its body profile, not its edge, is what the
+  // camera actually sees. ---
+  const guitarBodyMaterial = new THREE.MeshStandardMaterial({ color: 0xa6692f, roughness: 0.55 });
   const guitarAccentMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2414, roughness: 0.6 });
+  const guitarBridgeMaterial = new THREE.MeshStandardMaterial({ color: 0x2c2115, roughness: 0.55 });
+  const guitarFretMaterial = new THREE.MeshStandardMaterial({ color: 0xd9c9a3, roughness: 0.4 });
+  const guitarStringMaterial = new THREE.MeshStandardMaterial({ color: 0xc9c2b0, roughness: 0.25, metalness: 0.4 });
+  const guitarPegMaterial = new THREE.MeshStandardMaterial({ color: 0xc1652f, roughness: 0.5, metalness: 0.3 });
 
   const guitarFacing = new THREE.Group(); // rotation.y: which way the guitar's flat face points
   const guitarLean = new THREE.Group(); // rotation.x: the backward lean against the corner, pivoting at the floor
   guitarFacing.add(guitarLean);
 
-  const guitarLowerBout = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), guitarBodyMaterial);
-  guitarLowerBout.scale.set(1, 1, 0.35);
-  guitarLowerBout.position.set(0, 0.22, 0);
-  guitarLowerBout.castShadow = true;
-  guitarLean.add(guitarLowerBout);
+  // Body outline, traced as one closed curve (half the profile drawn
+  // explicitly, mirrored for the other half) rather than stacked
+  // primitives: bottom tip -> lower bout (widest) -> waist (narrowest,
+  // pinched in) -> upper bout (wide again, but less than the lower bout,
+  // per a real acoustic's own proportions) -> shoulder (narrows to meet
+  // the neck). Drawn in the local XY plane; ExtrudeGeometry then gives it
+  // real depth along Z, which is the same "front face holds the sound
+  // hole/bridge" axis every accessory below already assumes.
+  const guitarShape = new THREE.Shape();
+  guitarShape.moveTo(0, 0.02);
+  guitarShape.bezierCurveTo(0.1, 0.02, 0.165, 0.08, 0.165, 0.17); // bottom -> lower bout widest (right)
+  guitarShape.bezierCurveTo(0.165, 0.25, 0.11, 0.27, 0.095, 0.33); // lower bout -> waist (right)
+  guitarShape.bezierCurveTo(0.08, 0.38, 0.125, 0.4, 0.125, 0.46); // waist -> upper bout widest (right)
+  guitarShape.bezierCurveTo(0.125, 0.51, 0.08, 0.54, 0.045, 0.56); // upper bout -> shoulder (right)
+  guitarShape.quadraticCurveTo(0, 0.575, -0.045, 0.56); // across the top, shoulder to shoulder
+  guitarShape.bezierCurveTo(-0.08, 0.54, -0.125, 0.51, -0.125, 0.46); // shoulder -> upper bout widest (left)
+  guitarShape.bezierCurveTo(-0.125, 0.4, -0.08, 0.38, -0.095, 0.33); // upper bout -> waist (left)
+  guitarShape.bezierCurveTo(-0.11, 0.27, -0.165, 0.25, -0.165, 0.17); // waist -> lower bout widest (left)
+  guitarShape.bezierCurveTo(-0.165, 0.08, -0.1, 0.02, 0, 0.02); // lower bout widest -> bottom, closing the path
 
-  const guitarUpperBout = new THREE.Mesh(new THREE.SphereGeometry(0.115, 10, 8), guitarBodyMaterial);
-  guitarUpperBout.scale.set(1, 1, 0.35);
-  guitarUpperBout.position.set(0, 0.42, 0);
-  guitarUpperBout.castShadow = true;
-  guitarLean.add(guitarUpperBout);
+  const GUITAR_BODY_DEPTH = 0.09;
+  const guitarBodyGeometry = new THREE.ExtrudeGeometry(guitarShape, {
+    depth: GUITAR_BODY_DEPTH,
+    bevelEnabled: true,
+    bevelThickness: 0.012,
+    bevelSize: 0.01,
+    bevelSegments: 2,
+    curveSegments: 10,
+  });
+  // Centers the extrusion on local z=0, matching the neck/headstock below
+  // (plain boxes, already centered on z=0) so the whole instrument shares
+  // one consistent front-back axis.
+  guitarBodyGeometry.translate(0, 0, -GUITAR_BODY_DEPTH / 2);
+  const guitarBody = new THREE.Mesh(guitarBodyGeometry, guitarBodyMaterial);
+  guitarBody.castShadow = true;
+  guitarLean.add(guitarBody);
 
-  const guitarSoundHole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), guitarAccentMaterial);
-  guitarSoundHole.position.set(0, 0.3, 0.057);
+  // Front-face accessories sit just proud of the body's own ACTUAL flat
+  // front face. A 1st attempt placed these at DEPTH/2 + 0.006 — correct
+  // only if the extrusion's front cap sat exactly at z = DEPTH/2, which it
+  // doesn't once bevelEnabled adds its own outward offset: the real cap
+  // sits at DEPTH/2 + bevelThickness, confirmed directly by sampling the
+  // actual post-build vertex positions, not assumed from the construction
+  // parameters. The 1st attempt's face-z (0.051) sat 0.006 BEHIND the
+  // true surface (0.057) — the sound hole, a flat disc with no volume of
+  // its own, was entirely buried inside the mesh and never visible at
+  // all; the bridge and strings (boxes/cylinders with real volume) still
+  // partly poked through, which is why only the sound hole silently
+  // disappeared. Face-z is now measured from the actual bevel offset.
+  const GUITAR_FACE_Z = GUITAR_BODY_DEPTH / 2 + 0.012 + 0.006;
+
+  // Sound hole and bridge, repositioned: a 1st attempt placed the hole at
+  // y=0.27 (down near the lower bout's own widest point, per the body
+  // profile's own half-width table) and the bridge even lower at y=0.21 —
+  // both read as sitting in the bottom third of the body, well below
+  // where a real acoustic's sound hole actually sits (between the waist
+  // and the upper bout, roughly centered on the body's own upper half).
+  // The hole now sits at y=0.4 (between the waist's own y=0.33-0.35 pinch
+  // and the upper bout's own y=0.46 widest point), with the bridge at
+  // y=0.3 (just below the hole, near the waist, matching a real
+  // acoustic's own string-anchor position relative to its sound hole).
+  const guitarSoundHole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 14), guitarAccentMaterial);
+  guitarSoundHole.position.set(0, 0.4, GUITAR_FACE_Z);
   guitarLean.add(guitarSoundHole);
 
-  const guitarNeck = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.55, 0.035), guitarAccentMaterial);
+  // Bridge — a raised wooden strip just below the sound hole, where the
+  // strings actually anchor on a real acoustic, not left implied.
+  const guitarBridgeY = 0.3;
+  const guitarBridge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, 0.02), guitarBridgeMaterial);
+  guitarBridge.position.set(0, guitarBridgeY, GUITAR_FACE_Z);
+  guitarLean.add(guitarBridge);
+
+  const guitarNeck = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.52, 0.035), guitarAccentMaterial);
   guitarNeck.position.set(0, 0.78, 0);
   guitarNeck.castShadow = true;
   guitarLean.add(guitarNeck);
+
+  // Fret-position markers — small inlay dots at a few real positions along
+  // the neck (not every fret, just enough to read as "a fretboard," the
+  // same restrained-detail spirit every other facility's own furniture
+  // keeps), so the neck isn't a single flat, featureless rod.
+  for (const y of [0.6, 0.72, 0.9]) {
+    const marker = new THREE.Mesh(new THREE.CircleGeometry(0.012, 8), guitarFretMaterial);
+    marker.position.set(0, y, 0.021);
+    guitarLean.add(marker);
+  }
 
   const guitarHeadstock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.03), guitarAccentMaterial);
   guitarHeadstock.position.set(0, 1.08, 0);
   guitarHeadstock.castShadow = true;
   guitarLean.add(guitarHeadstock);
 
+  // Tuning pegs — three small cylinders per side at the headstock's
+  // edges, reading as real hardware rather than a plain block.
+  for (const side of [-1, 1] as const) {
+    for (const yOffset of [-0.035, 0, 0.035]) {
+      const peg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 6), guitarPegMaterial);
+      peg.rotation.z = Math.PI / 2;
+      peg.position.set(side * 0.058, 1.08 + yOffset, 0);
+      guitarLean.add(peg);
+    }
+  }
+
+  // Strings — six thin cylinders running from the bridge up to near the
+  // nut, the one detail that most reads as "a guitar, not an empty body"
+  // from the camera's own fixed angle.
+  const guitarStringTopY = 1.05;
+  const guitarStringLength = guitarStringTopY - guitarBridgeY;
+  for (let i = 0; i < 6; i++) {
+    const stringX = -0.045 + i * 0.018;
+    const string = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, guitarStringLength, 4), guitarStringMaterial);
+    string.position.set(stringX, guitarBridgeY + guitarStringLength / 2, GUITAR_FACE_Z);
+    guitarLean.add(string);
+  }
+
   guitarLean.rotation.x = -0.16; // leans back into the corner, pivoting at the floor
   guitarFacing.rotation.y = Math.PI / 4; // faces diagonally into the room, matching the camera's own azimuth
   guitarFacing.position.set(-1.22, 0, -1.22); // the back-left corner — both adjoining walls are visible here
   group.add(guitarFacing);
 
-  // --- Keyboard + bench, EAST side — floor-standing furniture near the
-  // culled right wall (see the file's own top note on why this fixture,
-  // not the whiteboard, goes here). Body + four thin legs, a lighter key
-  // strip along its west-facing edge (the side actually played from), and
-  // a separate bench to its west, facing it. ---
-  const keyboardBodyMaterial = new THREE.MeshStandardMaterial({ color: 0x2c2115, roughness: 0.4 });
-  const keyboardKeysMaterial = new THREE.MeshStandardMaterial({ color: 0xfffbf1, roughness: 0.3 });
-  const keyboardLegMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2414, roughness: 0.6 });
+  // --- Electric piano + bench, EAST side — floor-standing furniture near
+  // the culled right wall (see the file's own top note on why this
+  // fixture, not the whiteboard, goes here). Visual pass, 2nd attempt: the
+  // given fact is specifically a floor-standing, mains-powered stage
+  // electric piano shaped like "an ordinary electric keyboard with the
+  // lower half of a real piano underneath it" — a solid cabinet from the
+  // floor up to the keybed, not legs/a stand of any kind (the 1st attempt
+  // built an X-frame stand, which is still "thin legs," just crossed ones,
+  // and missed the point). Built here as one continuous solid body: a
+  // real piano's own tapering cabinet silhouette (narrower at the floor,
+  // flaring out slightly to support the keybed, like a real upright
+  // piano's lower case) extruded from a 2D profile the same way the
+  // guitar's body now is, with a visible black/white key strip on top
+  // (individual key divisions, not a flat painted strip), a small raised
+  // control panel with a few decorative knobs (fixed geometry only — no
+  // lit/unlit state, per ADR 0006's own "no instrument-appliance status"
+  // rule: these read as "a real control panel exists," never as a
+  // power/on-off indicator), and NO exposed stand/legs/pedal — the given
+  // fact is explicit that there's no large open space underneath the way
+  // a real acoustic piano has, so the cabinet goes solid to the floor
+  // instead. ---
+  const keyboardBodyMaterial = new THREE.MeshStandardMaterial({ color: 0x1c1512, roughness: 0.35 });
+  const keyboardWhiteKeyMaterial = new THREE.MeshStandardMaterial({ color: 0xfffbf1, roughness: 0.3 });
+  const keyboardBlackKeyMaterial = new THREE.MeshStandardMaterial({ color: 0x15100c, roughness: 0.3 });
+  const keyboardPanelMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2414, roughness: 0.4 });
+  const keyboardKnobMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5c47, roughness: 0.4, metalness: 0.2 });
 
   const KEYBOARD_X = ROOM_WIDTH / 2 - 0.37; // just inside the east wall's own position
+  // A real stage piano's own playing height — lowered from an initial
+  // 0.76 (closer to a tabletop keyboard propped high) after a real
+  // screenshot showed the key strip sitting noticeably above where a
+  // seated player's hands would actually reach relative to the bench's
+  // own 0.42 seat height. 0.68 keeps the keybed clearly above the bench
+  // (same margin every room's own desk/chair pairs use) without reading
+  // as elevated furniture.
+  const KEYBOARD_KEYBED_Y = 0.68;
 
   const keyboardGroup = new THREE.Group();
   keyboardGroup.position.set(KEYBOARD_X, 0, 0);
 
-  const keyboardBody = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.07, 1.1), keyboardBodyMaterial);
-  keyboardBody.position.set(0, 0.74, 0);
-  keyboardBody.castShadow = true;
-  keyboardGroup.add(keyboardBody);
+  // Cabinet: one continuous extruded solid from the floor up to the
+  // keybed — a real piano's own lower-case silhouette (CABINET_BASE_DEPTH
+  // wide at the floor, narrowing slightly partway up like a real cabinet's
+  // waist, then widening again to CABINET_TOP_DEPTH to support the
+  // keybed's own overhang), traced in the local XZ plane (X = front-back
+  // depth, Z = left-right length along the room's own north-south axis)
+  // and extruded upward (+Y) — the same "trace the real outline, extrude
+  // for thickness" fix the guitar's body above now uses, so this also
+  // reads as one solid piece, not a deck on separate legs.
+  const CABINET_LENGTH = 1.1; // matches the previous keyboard body's own east-west footprint
+  const CABINET_BASE_DEPTH = 0.42; // front-to-back footprint at the floor
+  const CABINET_WAIST_DEPTH = 0.34; // narrower midsection, like a real cabinet's own waist
+  const CABINET_TOP_DEPTH = 0.46; // widens again just under the keybed, to support its own overhang
 
-  const keyboardKeyStrip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.015, 1.0), keyboardKeysMaterial);
-  keyboardKeyStrip.position.set(-0.15, 0.776, 0); // the west-facing edge — the side actually played from
-  keyboardGroup.add(keyboardKeyStrip);
+  const cabinetShape = new THREE.Shape();
+  cabinetShape.moveTo(0, 0); // front-bottom
+  cabinetShape.lineTo(0, KEYBOARD_KEYBED_Y * 0.55);
+  cabinetShape.quadraticCurveTo(0, KEYBOARD_KEYBED_Y * 0.7, CABINET_BASE_DEPTH - CABINET_WAIST_DEPTH, KEYBOARD_KEYBED_Y * 0.78); // front face curves in toward the waist
+  cabinetShape.lineTo(CABINET_BASE_DEPTH - CABINET_WAIST_DEPTH, KEYBOARD_KEYBED_Y * 0.9);
+  cabinetShape.quadraticCurveTo(CABINET_BASE_DEPTH - CABINET_WAIST_DEPTH, KEYBOARD_KEYBED_Y, CABINET_BASE_DEPTH - CABINET_TOP_DEPTH, KEYBOARD_KEYBED_Y); // waist flares back out to meet the keybed
+  cabinetShape.lineTo(CABINET_BASE_DEPTH, KEYBOARD_KEYBED_Y); // top, back to the full depth
+  cabinetShape.lineTo(CABINET_BASE_DEPTH, 0); // back face, straight down to the floor
+  cabinetShape.lineTo(0, 0); // close along the floor
 
-  for (const lx of [-0.14, 0.14] as const) {
-    for (const lz of [-0.48, 0.48] as const) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.7, 0.04), keyboardLegMaterial);
-      leg.position.set(lx, 0.35, lz);
-      keyboardGroup.add(leg);
-    }
+  const cabinetGeometry = new THREE.ExtrudeGeometry(cabinetShape, {
+    depth: CABINET_LENGTH,
+    bevelEnabled: true,
+    bevelThickness: 0.015,
+    bevelSize: 0.012,
+    bevelSegments: 2,
+    curveSegments: 8,
+  });
+  // The shape was already traced with its own local X as the room's
+  // front-back depth and its own local Y as the room's vertical axis —
+  // ExtrudeGeometry's default extrusion along its own local Z already
+  // lines up with the room's own north-south (Z) axis without any
+  // rotation. A first attempt added a rotateX(-PI/2) here on the mistaken
+  // assumption the shape needed re-orienting; numerically checking the
+  // actual post-transform vertex extents caught that this rotation
+  // instead swapped the cabinet's height and length — the shape rendered
+  // as a too-tall, narrow-footprint block, with the real tapered profile
+  // rotated onto a face the fixed camera never sees. No rotation is
+  // applied; only the centering translate below is needed.
+  cabinetGeometry.translate(-CABINET_BASE_DEPTH / 2, 0, -CABINET_LENGTH / 2);
+  const keyboardCabinet = new THREE.Mesh(cabinetGeometry, keyboardBodyMaterial);
+  keyboardCabinet.castShadow = true;
+  keyboardGroup.add(keyboardCabinet);
+
+  // Rear housing — a raised lip running the full length of the cabinet's
+  // own back edge, the real piece a 1st attempt was missing: that attempt
+  // left the keys sitting on an otherwise completely flat, open top
+  // surface, with nothing behind them but bare cabinet-top — reading as
+  // keys laid on an open platform rather than built into an instrument
+  // with a real case around them. A real stage piano's own back edge
+  // always has a raised housing (holding its own internals/speakers)
+  // framing the keybed from behind; built here as one long box the same
+  // material as the cabinet, sized to the cabinet's own top depth so it
+  // reads as a continuation of the same case, not a bolted-on add-on.
+  // CABINET_TOP_DEPTH (0.46) is deliberately larger than CABINET_BASE_DEPTH
+  // (0.42) — the whole point of the waist-then-flare profile above is
+  // that the top overhangs the floor footprint slightly. That means the
+  // top's own FRONT edge (the playing side) sits at the MORE NEGATIVE x,
+  // past the floor's own front edge at x=0 — confirmed directly by
+  // sampling the built geometry's actual top-surface vertex x-range
+  // ([-0.25, 0.21]) rather than assumed from the construction formula. A
+  // 1st attempt swapped these two labels, which silently put the "rear"
+  // housing at the playing edge and the keys hanging past the real back
+  // edge into empty space — caught here before building, not after a
+  // second wrong screenshot.
+  const KEYBOARD_TOP_FRONT_X = CABINET_BASE_DEPTH - CABINET_TOP_DEPTH - CABINET_BASE_DEPTH / 2; // top's own front (playing-side) edge — the more negative x
+  const KEYBOARD_TOP_BACK_X = CABINET_BASE_DEPTH / 2; // top's own back edge — the more positive x
+  const REAR_HOUSING_DEPTH = 0.1;
+  // Tall enough to sit clearly above the key tops (white + black key
+  // heights below, increased for the same reason), per the given fact
+  // that a real stage piano's own hinged lid rests closed across the
+  // keybed and needs the rear housing to stand taller than that lid so
+  // it doesn't tip forward — a 1st attempt's 0.07 numerically cleared the
+  // key tops but by too thin a margin to read as a real step from this
+  // camera's own isometric angle; raised here so the housing visibly
+  // rises above, and slightly in front of, the key strip's own back
+  // edge.
+  const REAR_HOUSING_HEIGHT = 0.17;
+  const rearHousing = new THREE.Mesh(
+    new THREE.BoxGeometry(REAR_HOUSING_DEPTH, REAR_HOUSING_HEIGHT, CABINET_LENGTH - 0.02),
+    keyboardBodyMaterial,
+  );
+  rearHousing.position.set(KEYBOARD_TOP_BACK_X - REAR_HOUSING_DEPTH / 2, KEYBOARD_KEYBED_Y + REAR_HOUSING_HEIGHT / 2, 0);
+  rearHousing.castShadow = true;
+  keyboardGroup.add(rearHousing);
+
+  // Key strip — individual white keys (thin boxes with real gaps, not one
+  // painted strip) along the west-facing edge (the front of the cabinet,
+  // the side actually played from), with black keys inset slightly above
+  // and between them, the same alternating pattern a real 88-key layout
+  // reads as even in low-poly. Sized to fill the real gap between the
+  // cabinet's own front edge and the new rear housing, rather than a
+  // fixed width chosen independently of either.
+  const WHITE_KEY_COUNT = 18;
+  const WHITE_KEY_WIDTH = (CABINET_LENGTH - 0.02) / WHITE_KEY_COUNT;
+  const KEY_STRIP_FRONT_X = KEYBOARD_TOP_FRONT_X + 0.03; // a small lip of cabinet-top visible in front of the keys, like a real instrument's own
+  const KEY_DEPTH = KEYBOARD_TOP_BACK_X - KEY_STRIP_FRONT_X - 0.015; // stop short of the rear housing, not overlapping it
+  const KEY_STRIP_X = KEY_STRIP_FRONT_X + KEY_DEPTH / 2;
+  // Key height (Y, vertical thickness): a 1st attempt used 0.012, thin
+  // enough that at this camera's own fixed isometric angle the keys read
+  // as a flat painted pattern rather than real raised keys with a
+  // visible top face and side. Thickened here to a real, visible slab.
+  const WHITE_KEY_HEIGHT = 0.045;
+  for (let i = 0; i < WHITE_KEY_COUNT; i++) {
+    const key = new THREE.Mesh(new THREE.BoxGeometry(KEY_DEPTH, WHITE_KEY_HEIGHT, WHITE_KEY_WIDTH * 0.92), keyboardWhiteKeyMaterial);
+    key.position.set(KEY_STRIP_X, KEYBOARD_KEYBED_Y + WHITE_KEY_HEIGHT / 2, -CABINET_LENGTH / 2 + 0.01 + WHITE_KEY_WIDTH * (i + 0.5));
+    keyboardGroup.add(key);
   }
+  // Black keys skip the usual two-per-octave gap (after the 3rd and 7th
+  // white key in each group of 7) — decorative, not a real-instrument
+  // layout requirement, but enough to read as "black and white keys,"
+  // not a flat monotone strip. Sit toward the back half of the white
+  // keys' own depth, the same real-instrument proportion (black keys
+  // reach only partway down a white key, not its full length).
+  const BLACK_KEY_HEIGHT = 0.02; // on top of, not instead of, the white keys' own thickness
+  for (let i = 0; i < WHITE_KEY_COUNT - 1; i++) {
+    if (i % 7 === 2 || i % 7 === 6) continue;
+    const key = new THREE.Mesh(new THREE.BoxGeometry(KEY_DEPTH * 0.6, BLACK_KEY_HEIGHT, WHITE_KEY_WIDTH * 0.5), keyboardBlackKeyMaterial);
+    key.position.set(KEY_STRIP_X + KEY_DEPTH * 0.18, KEYBOARD_KEYBED_Y + WHITE_KEY_HEIGHT + BLACK_KEY_HEIGHT / 2, -CABINET_LENGTH / 2 + 0.01 + WHITE_KEY_WIDTH * (i + 1));
+    keyboardGroup.add(key);
+  }
+
+  // Control panel — a few decorative knobs set into the rear housing's
+  // own top face (fixed geometry only, never lit — see the file's own
+  // top note on why this doesn't cross into instrument-appliance
+  // status), at the housing's own north end.
+  const KEYBOARD_REAR_HOUSING_CENTER_X = KEYBOARD_TOP_BACK_X - REAR_HOUSING_DEPTH / 2;
+  const keyboardPanel = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.012, 0.18), keyboardPanelMaterial);
+  keyboardPanel.position.set(KEYBOARD_REAR_HOUSING_CENTER_X, KEYBOARD_KEYBED_Y + REAR_HOUSING_HEIGHT + 0.006, -CABINET_LENGTH / 2 + 0.1);
+  keyboardGroup.add(keyboardPanel);
+  for (const kz of [-0.52, -0.47, -0.42] as const) {
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.02, 10), keyboardKnobMaterial);
+    knob.position.set(KEYBOARD_REAR_HOUSING_CENTER_X, KEYBOARD_KEYBED_Y + REAR_HOUSING_HEIGHT + 0.016, kz);
+    keyboardGroup.add(knob);
+  }
+
   group.add(keyboardGroup);
 
   const benchMaterial = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.75 });
@@ -385,6 +641,34 @@ export function buildWeaselRoom(): WeaselRoomHandle {
   }
   group.add(heaterGroup);
 
+  // --- Door threshold, SOUTH-WEST corner — the open front already *is*
+  // the doorway for every room in this app (see the file's own top note
+  // on the south/open-front mapping), so this is a floor marking, not a
+  // wall opening: a contrasting threshold strip plus two short jamb
+  // posts, same construction as rat-room.ts's and badger-room.ts's own
+  // door threshold. Offset toward the west (DOOR_X following Rat Room's
+  // own -ROOM_WIDTH/2 + 0.9 formula, scaled to this room's own smaller
+  // 3x3 footprint), with real clearance checked numerically, not by eye,
+  // against the heater already occupying this same south-west area: the
+  // heater's own Z extent (0.75 to 1.35) sits well short of the
+  // threshold's own Z position (1.4), and the heater's own X extent
+  // (-1.48 to -1.38) sits 0.28 clear of the threshold's own west edge
+  // (-1.1) — no overlap with the heater or with either chair. ---
+  const thresholdMaterial = new THREE.MeshStandardMaterial({ color: 0xc1652f, roughness: 0.6 });
+  const DOOR_X = -ROOM_WIDTH / 2 + 0.9;
+  const DOOR_Z = ROOM_DEPTH / 2 - 0.1;
+  const threshold = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.02, 0.22), thresholdMaterial);
+  threshold.position.set(DOOR_X, 0.011, DOOR_Z);
+  group.add(threshold);
+  const jambMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5c47, roughness: 0.6 });
+  const jambLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.06), jambMaterial);
+  jambLeft.position.set(DOOR_X - 0.5, 0.15, DOOR_Z);
+  jambLeft.castShadow = true;
+  group.add(jambLeft);
+  const jambRight = jambLeft.clone();
+  jambRight.position.set(DOOR_X + 0.5, 0.15, DOOR_Z);
+  group.add(jambRight);
+
   // Dim is applied as a flat multiplier against each surface's own base
   // color (never touching roughness/other properties) — paired here, once,
   // with the base hex each material actually started from, same technique
@@ -395,7 +679,13 @@ export function buildWeaselRoom(): WeaselRoomHandle {
     [whiteboardFaceMaterial, 0xfffbf1],
     [windowGlassMaterial, 0x8fc8de],
     [guitarBodyMaterial, 0xa6692f],
-    [keyboardBodyMaterial, 0x2c2115],
+    [guitarFretMaterial, 0xd9c9a3],
+    [guitarStringMaterial, 0xc9c2b0],
+    [guitarPegMaterial, 0xc1652f],
+    [keyboardBodyMaterial, 0x1c1512],
+    [keyboardWhiteKeyMaterial, 0xfffbf1],
+    [keyboardPanelMaterial, 0x3d2414],
+    [keyboardKnobMaterial, 0x6b5c47],
     [chairMaterial, 0x6b4a2f],
   ];
 
