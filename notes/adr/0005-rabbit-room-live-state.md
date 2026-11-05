@@ -21,6 +21,22 @@ Where a rule looks the same but rests on different evidence for this
 room, this ADR re-derives it rather than citing ADR 0004 and stopping
 there.
 
+## Design correction, v2 — seated figure clipping through its own chair
+
+- **The seated figure's torso box clipped through the chair's own seat
+  cushion and down into the open space between its stick legs** — the
+  same bug, same root cause, as weasel-room-figures.ts's own seated pose
+  (see notes/adr/0006-weasel-room-live-state.md, "Design correction,
+  v2"): `rabbit-room-figures.ts`'s seated `torsoY` (0.28) was an
+  arbitrary sit height, not derived from this room's own chair geometry
+  (`rabbit-room.ts`'s own chair build: a 0.05-tall seat centered at
+  y=0.26, so its real top face sits at y=0.285). Fixed by deriving
+  `torsoY` from the chair's own seat-top height plus half the torso's own
+  height, so the torso's bottom face lands flush on the seat rather than
+  through it. Head/arm positions are already expressed relative to
+  `torsoY` in that file, so they moved up correctly with no separate
+  change.
+
 ## Context
 
 `FINAL_PROJECT_SOURCE_OF_TRUTH.md` §3 names Rabbit Room as a group-study /

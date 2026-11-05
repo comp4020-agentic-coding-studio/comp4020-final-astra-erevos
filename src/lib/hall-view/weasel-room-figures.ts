@@ -68,7 +68,18 @@ export function buildWeaselRoomFigure(
 
   const seated = pose === "seated";
   const torsoHeight = seated ? 0.32 : 0.55;
-  const torsoY = seated ? 0.28 : 0.42;
+  // Seated torsoY is the BOX'S OWN CENTER, not an arbitrary sit height —
+  // it must sit torsoHeight/2 ABOVE the room's own chair seat surface
+  // (weasel-room.ts's buildChair(): a 0.05-tall seat centered at y=0.26,
+  // so its top face is at 0.285), so the torso's own bottom face lands
+  // flush on the seat rather than through it. The previous constant
+  // (0.28) put the torso's own bottom face at 0.12 — well below the seat
+  // surface and the chair's own open-legged frame below it, reading as
+  // clipping ("穿模") through both the cushion and the visible gaps
+  // between the chair's thin stick legs, since nothing solid there hides
+  // the interpenetration the way a boxier sofa would.
+  const CHAIR_SEAT_TOP = 0.285;
+  const torsoY = seated ? CHAIR_SEAT_TOP + torsoHeight / 2 : 0.42;
 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.26, torsoHeight, 0.18), bodyMaterial);
   torso.position.set(0, torsoY, 0);

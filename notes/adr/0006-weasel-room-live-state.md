@@ -23,6 +23,29 @@ Otter-Room-or-Rabbit-Room-specific choice). Where a rule looks the same
 but rests on evidence specific to this room, this ADR re-derives it
 rather than citing ADR 0004/0005 and stopping there.
 
+## Design correction, v2 — seated figure clipping through its own chair
+
+- **The seated figure's torso box clipped through the chair's own seat
+  cushion and down into the open space between its stick legs**
+  ("小人坐在椅子上会有穿模") — `weasel-room-figures.ts`'s seated `torsoY`
+  (0.28) was an arbitrary sit height, not derived from the room's own
+  chair geometry (`weasel-room.ts`'s `buildChair()`: a 0.05-tall seat
+  centered at y=0.26, so its real top face sits at y=0.285). With a
+  0.32-tall torso box centered at 0.28, the box spanned 0.12–0.44 — its
+  bottom half sat well below the seat surface, visible through the gaps
+  in the chair's thin open-legged frame (nothing solid there to hide the
+  interpenetration the way a boxier sofa would). Fixed by deriving
+  `torsoY` from the chair's own seat-top height plus half the torso's own
+  height, so the torso's bottom face lands flush on the seat rather than
+  through it. Head/arm positions are already expressed relative to
+  `torsoY` in that file, so they moved up correctly with no separate
+  change. The same `0.3 x 0.05` seat geometry and the same `torsoY = 0.28`
+  pattern exist in every other facility's own chair/seated-figure pair
+  (Otter Room, Rabbit Room, Badger Room, Rat Room) — this fix resolves
+  Weasel Room only; the others are each their own separate, not-yet-made
+  correction, following the same root-cause-first-then-repeat-elsewhere
+  approach this ADR's own Decision 2 used for the occupied-ceiling norm.
+
 ## Context
 
 `FINAL_PROJECT_SOURCE_OF_TRUTH.md` §3 names Weasel Room only briefly: "a

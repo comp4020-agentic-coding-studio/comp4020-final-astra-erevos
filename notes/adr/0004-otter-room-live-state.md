@@ -11,6 +11,22 @@ this ADR. See Verification below for what was actually run, and
 `PROCESS.md`'s Otter Room entry for the two real bugs a real browser check
 caught that neither this ADR nor the automated test suite predicted.
 
+## Design correction, v2 — seated figure clipping through its own chair
+
+- **The seated ("desk") figure's torso box clipped through the chair's
+  own seat cushion and down into the open space between its stick legs**
+  — the same bug, same root cause, as weasel-room-figures.ts's own seated
+  pose (see notes/adr/0006-weasel-room-live-state.md, "Design correction,
+  v2"): `otter-room-figures.ts`'s seated `torsoY` (0.28) was an arbitrary
+  sit height, not derived from this room's own chair geometry
+  (`otter-room.ts`'s own chair build: a 0.05-tall seat centered at
+  y=0.26, so its real top face sits at y=0.285). Fixed by deriving
+  `torsoY` from the chair's own seat-top height plus half the torso's own
+  height, so the torso's bottom face lands flush on the seat rather than
+  through it. Head/arm positions are already expressed relative to
+  `torsoY` in that file, so they moved up correctly with no separate
+  change.
+
 ## Context
 
 `FINAL_PROJECT_SOURCE_OF_TRUTH.md` §3 names Otter Room as a small study

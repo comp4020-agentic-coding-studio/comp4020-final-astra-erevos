@@ -68,7 +68,16 @@ export function buildRatRoomFigure(
 
   const seated = pose === "seated";
   const torsoHeight = seated ? 0.32 : 0.55;
-  const torsoY = seated ? 0.28 : 0.42;
+  // Seated torsoY is the BOX'S OWN CENTER, not an arbitrary sit height —
+  // it must sit torsoHeight/2 ABOVE the room's own chair seat surface
+  // (rat-room.ts's own workstation chair build: a 0.05-tall seat centered
+  // at y=0.26, so its top face is at 0.285), so the torso's own bottom
+  // face lands flush on the seat rather than through it. Same fix, same
+  // root cause, as weasel-room-figures.ts's own seated pose (see
+  // notes/adr/0006-weasel-room-live-state.md, "Design correction, v2") —
+  // every facility sharing this chair geometry had the same bug.
+  const CHAIR_SEAT_TOP = 0.285;
+  const torsoY = seated ? CHAIR_SEAT_TOP + torsoHeight / 2 : 0.42;
 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.26, torsoHeight, 0.18), bodyMaterial);
   torso.position.set(0, torsoY, 0);
