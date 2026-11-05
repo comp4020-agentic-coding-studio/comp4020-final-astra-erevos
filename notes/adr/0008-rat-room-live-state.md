@@ -765,7 +765,10 @@ same staged order every prior room's own 3D work used:
   against it — was caught and fixed via direct Three.js
   `Group`/`localToWorld` numerical verification of world-space
   coordinates *before* any screenshot was taken, not discovered visually.
-- Stage 2: the 3D scene's only input is the already-derived room
+- **The following Stage 2 verification records the original pre-v3
+  decorative-figure design and is retained as historical evidence; its
+  figure-invariance claims were superseded by "Design correction, v3"
+  above.** Stage 2: the 3D scene's only input is the already-derived room
   `visual` from `summarizeRatRoomSeats()` — never an individual seat's
   own state, never `occupiedCount`/`emptyCount`/`unknownCount` directly,
   and no persisted room-level occupancy of its own. `empty` shows the
@@ -808,6 +811,17 @@ same staged order every prior room's own 3D work used:
   Rabbit → Weasel → Badger → Rat → back to Laundry) was confirmed
   working with each facility's own canvas mounting correctly and zero
   console errors throughout.
+- **Current implementation (post-v3) verification**: each occupied A–J
+  seat renders exactly one seated figure at its own fixed workstation
+  (`SEAT_WORKSTATIONS`), while empty/unknown seats render no figure, with
+  no visual distinction between the two — verified directly via
+  screenshots of single-seat (A only, then A+J together), all-ten-
+  occupied, all-ten-unknown, and all-ten-empty combinations, plus a live
+  cross-session SSE update (no reload) and byte-identical reduced-motion
+  frames. Room-level summary and dim/desaturate behavior remain derived
+  exactly as before this correction — only `visual === "unknown"` dims
+  the room; `visual === "empty"` (all ten confirmed free) stays fully
+  lit, the same rule every other facility's own room uses.
 
 **Production verification (completed).** CI run
 [`41120102605`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/actions/runs/41120102605)
@@ -849,9 +863,13 @@ browser sessions against production, not a local build:
   `occupied` report with `expectedEndAt` a few seconds out, left to
   expire, then read — a real product code path compressed in time, not a
   fabricated state.)
-- figure count/position invariance re-confirmed live across different
-  occupied-seat combinations (only seat A occupied vs. only seat H
-  occupied rendered visually identical scenes);
+- **pre-v3 historical verification, not current behavior (see "Design
+  correction, v3" above):** figure count/position invariance re-confirmed
+  live across different occupied-seat combinations (only seat A occupied
+  vs. only seat H occupied rendered visually identical scenes) — under
+  v3, these two scenes are now expected to differ (the figure sits at
+  seat A's own workstation vs. seat H's own), which is the whole point of
+  that correction;
 - `expectedEndAt` independence re-confirmed live (an occupied seat with
   vs. without an estimate rendered visually identical scenes);
 - two independent browser sessions, each its own server-issued

@@ -16,8 +16,6 @@ Its purpose is to stop the core idea drifting during long Claude Code sessions w
 
 **Toad Live**
 
-The name is provisional.
-
 ## One-sentence concept
 
 A resident-maintained live view of what is happening across Toad Hall's shared facilities and communal spaces.
@@ -209,11 +207,16 @@ Machine states (confirmed, not invented edge cases):
   — any seat occupied wins outright, else all-empty, else the honest
   unknown middle case — computed fresh every time and never persisted as
   a second, room-level fact of its own. No printer status or queue, no
-  booking/reservation of any kind, no activity taxonomy, no headcount,
-  and no mapping from any specific seat A–J to a specific 3D
-  workstation or decorative figure — the same scope boundary every other
-  implemented facility keeps, applied here per seat rather than per
-  room.
+  booking/reservation of any kind, no activity taxonomy, no headcount.
+  Each seat A–J is now fixed to one specific 3D workstation (a
+  deliberate, requested reversal of this facility's original "no
+  mapping" scope — see `notes/adr/0008-rat-room-live-state.md`, "Design
+  correction, v3"): an occupied seat shows a seated figure at exactly its
+  own workstation's chair, an empty or unknown seat shows the same bare
+  chair with no figure and no visual distinction between the two. This
+  is a 3D-presentation-only correction — the seat data model, API,
+  decay, concurrency, and the purely-derived room-level summary above are
+  all unchanged.
 
 - **Weasel Room — Music Room**
   - guitar and keyboard;
@@ -317,22 +320,20 @@ A resident who only wants to know whether a washer, room or common area is avail
 
 ## Layer 2 — the Hall feels alive
 
-Individual facilities may also have a richer visual representation.
+Individual facilities also have a richer visual representation.
 
-The current idea is to experiment with small 3D or animated scenes, for example:
+**Implemented:** each of the seven facilities has its own live 3D scene, for example:
 
 - a washing machine visibly spinning while running;
 - students studying in a study room;
 - people eating or talking in a common area;
 - people playing in the Anton Aalbers Room;
 - someone practising music in the Weasel Room;
-- a staff member appearing at reception.
+- someone using a seat in the Rat Room.
 
-These visuals should respond to the same shared state as the practical interface.
+These visuals respond to the same shared state as the practical interface.
 
-They are intended to make Toad Hall feel inhabited and alive rather than acting as unrelated decoration.
-
-This richer layer is part of the final-project vision, not a Crit 8 requirement.
+They make Toad Hall feel inhabited and alive rather than acting as unrelated decoration.
 
 ---
 
@@ -352,7 +353,7 @@ The exact form of these interactions is still open.
 
 # 8. What "good" is beginning to mean
 
-This is provisional and will become the argument in README.md.
+This argument is now carried in full by README.md.
 
 A good version of this project should be:
 
@@ -493,8 +494,10 @@ The following should be interrogated before they are fixed:
   occupancy-model room (Otter, Rabbit, Weasel, Badger, Rat)**: none.
   Live state only, no booking calendar, no future reservation (§3);
 - the scope of community notes;
-- how the 3D / animated layer should work;
 - which claims about "good" should become automated checks.
+
+The 3D/animated layer is no longer open: every facility has its own
+implemented, live visual representation (§6, Layer 2).
 
 These questions should be resolved from the needs of the Toad Hall community and the project's definition of good, rather than by copying patterns from generic social or booking apps.
 

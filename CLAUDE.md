@@ -54,11 +54,16 @@ let this file, the README's argument, and the code drift apart.
   written to SQLite, and is correctly rebuilt from scratch by every
   reconnect — the persistence rule below governs machine rows, not open
   connections. See `notes/adr/0001-realtime-and-concurrent-updates.md`.
-- **Do not invent decay/staleness thresholds.** The confirmed → stale →
-  expired model is settled; the actual minute values are an open question
-  pending real cycle-time data. If a number is needed to make something
-  runnable, it must be clearly marked provisional in code and called out in
-  `PROCESS.md` — never landed as if it were settled.
+- **Do not invent Laundry decay/staleness thresholds.** Laundry's
+  broader confirmed → stale → expired model is settled, but some
+  Laundry-specific minute values (e.g. `UNTIMED_IN_USE_DECAY_MS`'s own
+  provisional window) remain an open question pending real cycle-time
+  data. If a number is needed to make something runnable, it must be
+  clearly marked provisional in code and called out in `PROCESS.md` —
+  never landed as if it were settled. This does not apply to the
+  occupancy rooms' own already-settled 15-minute/4-hour figures (Otter,
+  Rabbit, Weasel, Badger, Rat Room — see this file's own standing rules
+  below and each room's ADR).
 - **No verified-resident accounts yet.** Identity is a server-issued,
   pseudonymous session: the server generates a high-entropy credential,
   stores only its hash, and authenticates a request by verifying
@@ -99,6 +104,17 @@ let this file, the README's argument, and the code drift apart.
   drift from what the ten seats actually say and raise an unanswerable
   "which one is authoritative" question — see
   `notes/adr/0008-rat-room-live-state.md`, Decision 4.
+- **Rat Room's ten seats (A–J) each map to one specific, fixed 3D
+  workstation.** An `occupied` seat shows exactly one seated figure at
+  that workstation's own chair; `empty` and `unknown` both show the same
+  bare chair, with no visual distinction between them. Don't revert this
+  to the earlier decorative/unmapped figure count — it was a deliberate,
+  requested reversal of this facility's original scope (see
+  `notes/adr/0008-rat-room-live-state.md`, "Design correction, v3"), not
+  an oversight. This is a 3D-presentation-only mapping: each seat's own
+  state is still the only persisted fact, and the room-level
+  summary/dim-desaturate above still come from deriving over the ten
+  seats, never a second persisted room-level occupancy.
 
 ## Persistence
 

@@ -66,7 +66,7 @@ production deploy and live smoke test. Rat Room's own three commits —
 shape in the log. I had the agent stop and wait for my review at each
 boundary rather than building a facility end-to-end in one pass.
 
-The reason is cost containment, not caution for its own sake. A wrong
+The reason is cost containment, not caution. A wrong
 state-model decision caught at the ADR stage costs nothing — no code
 exists to unwind. The same mistake caught after backend, panel, and 3D
 are already interleaved costs a much larger revert, and risks dragging
@@ -126,5 +126,6 @@ All seven facilities are implemented and verified live in production.
 Each has its own `spec/` coverage and a confirmed post-deploy smoke
 check. Their decisions are documented across eight ADRs — two
 cross-cutting (real-time/concurrency and identity) and one per facility
-from AA Room on, since Laundry precedes the ADR practice. What remains
-is polish and presentation, not further facility work.
+from AA Room on, since Laundry precedes the ADR practice. Facility
+implementation is complete; what remains is final submission
+verification, not further product expansion.
