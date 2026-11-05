@@ -48,11 +48,15 @@ export function buildFigure(seed: string, pose: FigurePose, position: THREE.Vect
 
   // Seated vs. standing changes proportions, not rig — no shared
   // skeleton, just two different fixed low-poly builds, matching the
-  // "crude but readable" brief. "hangout" (chatting/sitting/reading/
-  // resting) is seated, same proportions as "sofa" — it's the same kind
-  // of casual presence, just placed at its own slots (see aa-room.ts)
-  // rather than sharing "tv"'s, now that both can be true at once.
-  const seated = pose === "sofa" || pose === "tv" || pose === "hangout";
+  // "crude but readable" brief. "hangout" in AA Room stands near the
+  // bookshelf (no sofa there to sit on) — a design correction after the
+  // original seated build read as a legless "dwarf" once these slots
+  // moved off the sofa to open floor; "sofa" keeps the seated build since
+  // it's genuinely seated furniture.
+  // "karaoke" is standing (singing in front of the screen, not sitting on
+  // the karaoke sofas — the sofas are for the audience, not modeled as
+  // figures here, same restraint as every other zone's small fixed count).
+  const seated = pose === "sofa" || pose === "tv";
   const torsoHeight = seated ? 0.32 : 0.55;
   const torsoY = seated ? 0.28 : 0.42;
 
@@ -111,6 +115,11 @@ export function buildFigure(seed: string, pose: FigurePose, position: THREE.Vect
       primaryArmPivot.rotation.x = Math.sin(t * 0.9) * 0.25 - 0.15;
     } else if (pose === "table-tennis") {
       primaryArmPivot.rotation.x = Math.sin(t * 2.1) * 0.35;
+    } else if (pose === "karaoke") {
+      // A raised, swaying "holding the mic" arm — distinct from pool's
+      // cue-stroke and table-tennis's paddle swing, same restrained
+      // continuous-loop discipline.
+      primaryArmPivot.rotation.x = -1.6 + Math.sin(t * 1.1) * 0.12;
     } else {
       primaryArmPivot.rotation.x = Math.sin(t * 0.4) * 0.05; // faint idle, not a specific activity
     }

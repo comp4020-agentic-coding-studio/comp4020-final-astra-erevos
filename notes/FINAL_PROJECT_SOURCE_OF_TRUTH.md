@@ -94,7 +94,21 @@ Machine states (confirmed, not invented edge cases):
   - pool table;
   - table tennis;
   - books and sofas;
+  - karaoke screen and sofas;
   - often used for Hall activities.
+
+  **Layout and karaoke confirmed (2026-11-05):** `notes/adr/0003-aa-room-
+  live-state.md`, "Design correction, v3" and "v4" — karaoke as a sixth
+  activity, and the room's real floor plan: a larger footprint, three real
+  doors (the main door and a staff-only kitchen door on the back wall, a
+  third on the west wall near the bookshelf/study tables), two study
+  tables stacked front-to-back under the shelf, and three nearer the open
+  front — the movie area (wall-mounted TV, partitioned and dimmed to
+  represent a real light-blocking wall segment), the pool table (portrait
+  orientation), and a U-shaped karaoke area (screen + sofas on three
+  sides) — confirmed by the resident commissioning this project rather
+  than assumed from the original four-zone sketch. No change to the
+  occupancy/freshness model this facility already has.
 
 - **Otter Room — Study Room**
   - small study / discussion space;

@@ -24,11 +24,16 @@
 // defensively correct even if it somehow were handed a mixed array).
 // Every figure count below remains purely decorative — never a real
 // headcount, never written back to AaRoomState.
+//
+// v3 (notes/adr/0003-aa-room-live-state.md, "Design correction, v3"):
+// "karaoke" slots into the same independent-tag model as tv/pool/table-
+// tennis/hanging-out — its own figures, its own screen-flicker flag,
+// combinable with any of the other four, excluded by "event" the same way.
 import type { AaRoomActivity, AaRoomOccupancy } from "../types.ts";
 
 export type AaRoomFreshness = "fresh" | "stale" | null;
 
-export type FigurePose = "sofa" | "pool" | "table-tennis" | "tv" | "standing" | "hangout";
+export type FigurePose = "sofa" | "pool" | "table-tennis" | "tv" | "standing" | "hangout" | "karaoke";
 
 export interface AaRoomLook {
   /** How many low-poly figures to show, and where/how (see FigurePose). Empty array = no one in the room. */
@@ -39,6 +44,8 @@ export interface AaRoomLook {
   poolActive: boolean;
   /** Paddle/ball make a simple continuous loop — only when "table-tennis" is in activities. Never a one-shot. */
   tableTennisActive: boolean;
+  /** Karaoke screen gets its own steady emissive flicker, same technique/intent as tvOn — only when "karaoke" is in activities. Never a one-shot. */
+  karaokeOn: boolean;
   /** 0–1 desaturation pulled over the whole room's materials — stale pulls partway, unknown pulls further. Mirrors status-look.ts's own `desaturate` field and intent. */
   desaturate: number;
   /** 0–1 dimming of the room's own lighting contribution — stale/unknown only; fresh is always 1 (full brightness). */
@@ -59,9 +66,16 @@ export interface AaRoomLook {
 // "hangout" its own slots, separate from "tv"'s.
 const HANGOUT_FIGURES: FigurePose[] = ["hangout", "hangout"];
 const TV_FIGURES: FigurePose[] = ["tv", "tv"];
-const POOL_FIGURES: FigurePose[] = ["pool", "standing"];
+const POOL_FIGURES: FigurePose[] = ["pool", "pool"];
 const TABLE_TENNIS_FIGURES: FigurePose[] = ["table-tennis", "table-tennis"];
-const EVENT_FIGURES: FigurePose[] = ["sofa", "standing", "standing", "pool"];
+const KARAOKE_FIGURES: FigurePose[] = ["karaoke", "karaoke"];
+// Grown from 4 to 8 — "hall event可以再热闹一点，你看现在的情况还不如点满
+// 其他活动的时候人多呢": at 4, an event read as emptier than simply
+// checking every other activity box at once (5 zones x 2 figures each).
+// An event should read as the busiest state the room has, not one of the
+// quieter ones. A mix of seated/standing for visual variety across the
+// room's own 8 numerically-checked EVENT_SLOTS (aa-room.ts).
+const EVENT_FIGURES: FigurePose[] = ["sofa", "standing", "standing", "sofa", "standing", "standing", "sofa", "standing"];
 
 // PROVISIONAL visual-only constants (not a decay threshold — see
 // notes/adr/0003-aa-room-live-state.md and CLAUDE.md's "do not invent
@@ -92,6 +106,7 @@ export function lookForAaRoom(
   let tvOn = false;
   let poolActive = false;
   let tableTennisActive = false;
+  let karaokeOn = false;
 
   if (occupancy === "unknown" || occupancy === "empty") {
     figures = [];
@@ -120,10 +135,14 @@ export function lookForAaRoom(
     if (activities.includes("hanging-out")) {
       figures = [...figures, ...HANGOUT_FIGURES];
     }
+    if (activities.includes("karaoke")) {
+      figures = [...figures, ...KARAOKE_FIGURES];
+      karaokeOn = true;
+    }
   }
 
   const desaturate = occupancy === "unknown" ? UNKNOWN_DESATURATE : freshness === "stale" ? STALE_DESATURATE : 0;
   const dim = occupancy === "unknown" ? UNKNOWN_DIM : freshness === "stale" ? STALE_DIM : 1;
 
-  return { figures, tvOn, poolActive, tableTennisActive, desaturate, dim };
+  return { figures, tvOn, poolActive, tableTennisActive, karaokeOn, desaturate, dim };
 }

@@ -78,12 +78,21 @@ export const VALID_REPORTABLE_AA_ROOM_OCCUPANCIES: readonly ReportableAaRoomOccu
 // member of the set (see VALID_AA_ROOM_ACTIVITIES's order below, which
 // is also the canonical sort/dedup order every stored and returned
 // `activities` array is normalized into).
-export type AaRoomActivity = "tv" | "pool" | "table-tennis" | "hanging-out" | "event";
+//
+// v3 (notes/adr/0003-aa-room-live-state.md, "Design correction, v3"):
+// adds "karaoke" — a real, separately-confirmed fixture in the room (a
+// karaoke screen and its own sofas), combinable with tv/pool/table-
+// tennis/hanging-out exactly like those four combine with each other,
+// and excluded by "event" exactly like they are. Not a new structural
+// case — it slots into the same independent-tag model v2 already
+// established, one more real thing the room can be used for at once.
+export type AaRoomActivity = "tv" | "pool" | "table-tennis" | "hanging-out" | "karaoke" | "event";
 export const VALID_AA_ROOM_ACTIVITIES: readonly AaRoomActivity[] = [
   "tv",
   "pool",
   "table-tennis",
   "hanging-out",
+  "karaoke",
   "event",
 ];
 

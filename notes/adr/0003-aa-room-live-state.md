@@ -1,19 +1,440 @@
 # ADR 0003: AA Room's shared live state
 
-**Status**: Implemented and verified live, with one design correction
-(see "Design correction, v2" below) made after Stage 4's 3D work exposed
-that v1's single-activity model didn't match how the room is actually
-used. Everything in Decision 2's occupancy rules, Decision 3's freshness
-model, and Decision 4's inherited house-wide rules stands unchanged;
-Decision 1 and part of Decision 2's activity list are superseded by the
-correction. Verified live in the deployment headed by `d824aec` (CI
-green, production version 34) — `PROCESS.md`'s own "Otter Room" entry,
-which that commit closes out, records the post-deploy smoke check that
-confirmed AA Room's report flow and cross-session SSE sync working live,
-not just locally — and every facility-regression smoke check run for
-each later facility (Rabbit Room through Rat Room) has continued to
-re-confirm AA Room alongside the newer work — see each of those
-milestones' own entries in `PROCESS.md`.
+**Status**: Implemented and verified live, with nine design corrections
+(see "Design correction, v2" through "v10" below). v2 was made after Stage
+4's 3D work exposed that v1's single-activity model didn't match how the
+room is actually used; v3 adds a sixth activity (karaoke) confirmed as a
+real, separately-existing room fixture alongside a first re-layout of the
+room's furniture; v4 corrects that first re-layout's geometry against the
+room's actual floor plan (a larger footprint, three real doors, and
+several zone shapes that were wrong in v3); v5 is a further geometry pass
+correcting several things v4 still got wrong once checked against real
+screenshots and the room's own description in more detail (proportions,
+door placement, furniture rotation, and two real rendering bugs); v6 fixes
+several real regressions v5 itself introduced while making those
+corrections; v7 is a small finishing pass — door scale, a still-unresolved
+figure-occlusion bug, and a too-subtle animation; v8 fixes a regression v6
+itself introduced (the main door's position) and properly resolves the
+figure-occlusion bug v7's own fix had not actually fixed; v9 corrects a
+figure the v7/v8 occlusion chase had been diagnosing under the wrong name
+entirely, and un-does the pool figures' own occlusion-avoidance offset once
+it was clear that offset was the wrong fix; v10 fixes pool/table-tennis
+figures' own facing (a shared constant rotation only happened to be
+correct for one of each pair's two slots), enlarges the movie zone's TV
+and adds floor speakers beneath it, and adds a colored ball cluster to the
+pool table. Every correction from v3 on is geometry-only; Decision 1 and
+part of Decision 2's activity list are superseded by the v2 correction,
+and the activity list is further extended by v3 — no change to the state
+model at all from v4 on. Verified live in the deployment headed by
+`d824aec` (CI green, production version 34) — `PROCESS.md`'s own "Otter
+Room" entry, which that commit closes out, records the post-deploy smoke
+check that confirmed AA Room's report flow and cross-session SSE sync
+working live, not just locally — and every facility-regression smoke
+check run for each later facility (Rabbit Room through Rat Room) has
+continued to re-confirm AA Room alongside the newer
+work — see each of those milestones' own entries in `PROCESS.md`.
+
+## Design correction, v10 — event's own figure count, movie-zone TV/speakers, pool balls, and pool/table-tennis facing
+
+- **A formal "hall event" showed only 4 figures, fewer than simply
+  checking every other activity box at once (5 zones x 2 figures = 10)**
+  — "hall event可以再热闹一点，你看现在的情况还不如点满其他活动的时候人多
+  呢": an event is meant to read as the room's busiest state, not one of
+  its quieter ones. Grew `EVENT_FIGURES` (`aa-room-status-look.ts`) and
+  `EVENT_SLOTS` (`aa-room.ts`) from 4 to 8, each new slot numerically
+  checked clear of every nearby piece of furniture (0.2 margin, matching
+  this file's own door-gap discipline) before being added.
+- **The movie zone's TV read as too small for "movie" to be the obvious
+  read** — "电影区的显示器可以更大一点才有电影的感觉": grew the bracket
+  from 0.6x0.5 to 0.85x0.7 and the screen from 0.5x0.35 to 0.7x0.55 (the
+  screen stays inset within the bracket's own face by the same bezel
+  margin as before, so the lit glow still can't spill past the physical
+  screen — the earlier spill bug this inset was built to prevent).
+- **Added a pair of floor-standing speakers flanking the TV stand** —
+  "下面可以放上落地音响增加氛围感": a plain stand under a big screen with
+  nothing else nearby still read as sparse. Positioned just outside the
+  stand's own footprint (north/south of it) so they don't clip it.
+- **The pool table had a single white ball, reading as an empty table
+  rather than a game in progress** — "台球桌上应该有好多彩色小球才对，现在
+  就一个白球太少了": added a static 10-ball colored cluster at the
+  table's far end, clear of the one ball that actually moves (its own
+  motion stays on the original white ball only).
+- **Pool and table-tennis figures all shared one fixed `facingY` constant
+  (`Math.PI/2`)** even though each pose has figures standing on BOTH ends
+  of its own table — "两个人朝向应该对着桌子才对，现在偏移了90度": a
+  single constant can only ever face the table correctly from one of the
+  two slots, leaving the other rotated 90° away from it. Fixed by
+  computing each figure's own facing via `Math.atan2` toward that pose's
+  table center (`POOL_X`/`POOL_Z` for pool, `PING_PONG_X`/`PING_PONG_Z`
+  for table tennis) instead of a shared constant — both figures in each
+  pair now face the table regardless of which side they stand on.
+
+## Design correction, v9 — the "dwarf" was a hangout figure, not a pool figure; pool figures belong back at the table
+
+- **The figure that actually looked like a "dwarf" across v6-v8's repeated
+  "fixes" was never the pool figure at all** — it was one of the two
+  `hangout` figures. Those had been seated-build figures (shared
+  proportions with `tv`/`sofa`: shortened torso, no legs at all) left over
+  from when hanging-out figures sat on a sofa; v2's own correction moved
+  their slots off any sofa onto open floor near the bookshelf, but never
+  updated the pose's body proportions to match standing on open floor, so
+  the figure rendered as a legless torso that read as "short" in exactly
+  the way v6-v8 kept trying (and failing) to fix on the pool figure
+  instead. Fixed in `aa-room-figures.ts`: `hangout` now uses the standing
+  body plan (full torso height, legs) rather than the seated one — `sofa`
+  and `tv` remain seated, since those are genuinely seated poses.
+- **Meanwhile, the pool figures' own v8 occlusion-avoidance fix had pushed
+  both slots so far east (into the open floor between the pool table and
+  karaoke) that they no longer stood anywhere near the pool table at all**
+  — correct in isolation (clear of every occluder checked) but wrong in
+  spirit, since two people standing in open floor don't read as "playing
+  pool." Reverted `FIGURE_SLOTS.pool` back to simple proximity at the
+  table's own short (north/south) ends (`POOL_Z ± 1.05`), abandoning the
+  occlusion-avoidance approach entirely rather than chasing a tighter
+  offset — verified this time by an actual screenshot showing both figures
+  standing beside the table with legs visible, not by projected math
+  alone.
+- **`POOL_FIGURES` was also still `["pool", "standing"]`** (one real pool
+  pose plus a generic filler figure using the unrelated, far-away
+  `standing` slots) — a leftover from before pool got its own two-figure
+  slot list, and the direct cause of a second, unrelated figure appearing
+  alone near the movie sofa in a "pool"-only screenshot while the user was
+  specifically checking whether "两个人" (two people) stood beside the
+  table. Changed to `["pool", "pool"]` so both pool-activity figures are
+  real pool players at the table, not one player plus a bystander
+  elsewhere in the room.
+
+## Design correction, v8 — the main door (again), and the pool figures (properly)
+
+- **The main door drifted back to an independent, east-wall-anchored
+  position**, crowding it against table tennis's own corner — v6's own fix
+  wrongly blamed the shelf-dependent door formula for the movie-zone
+  door-through-the-TV bug (that bug was actually the WEST door's own Z
+  position, unrelated to the main door's X) and reverted it away from the
+  shelf. The user's original instruction was clear that the shelf being
+  widened should put it "正好" next to the main door, not the other way
+  around — restored the shelf-dependent formula. Table tennis's own
+  position is independent of the door's, so this doesn't drag it along a
+  second time.
+- **The pool-figure occlusion bug was still not actually fixed** — v7's
+  own combined (x,z) offset cleared the pool table itself, but a
+  screenshot with every activity shown together (not just "pool" in
+  isolation) revealed the SOUTH figure slot fell inside the PARTITION
+  WALL's own screen footprint instead, a different occluder from the one
+  v7's own check considered. Fixed by checking each candidate slot against
+  every nearby occluder at once — the pool table, the partition wall, the
+  movie sofa, the karaoke west sofa, and the study tables — rather than
+  whichever one happened to be the most obvious suspect, and by verifying
+  with every activity active simultaneously, not just the one activity
+  whose own figure was being positioned. Both slots now share the same
+  simple eastward step into the open floor between the pool table and the
+  karaoke zone, clear of everything nearby in both screen-space and real
+  world-space (not just projected coincidentally clear).
+
+## Design correction, v7 — door scale, pool figures (again), note motion
+
+- **The three wall doors were sized too large** against the rest of the
+  app's own door language — every other facility's "door" is a floor
+  threshold on its open front, not a wall cut, so AA Room's own wall
+  openings (the one real exception, since these particular walls are
+  genuinely opaque) had no existing scale to match and were built
+  oversized ("AA ROOM的门还是太大了，你改成otter room等其他房间统一用的小
+  门吧"). `DOOR_HEIGHT` shrinks from 2.0 to 1.8 and each door's own width
+  shrinks proportionally (0.7→0.52, 0.9→0.68 for the other two) — the
+  wall-opening construction itself is unchanged, only its dimensions.
+- **v6's pool-figure fix (1.2-unit clearance) was still wrong** — a real
+  screenshot after v6 landed showed the same squat, legless look
+  ("台球区小蓝人还是侏儒"). Re-checked by projecting the figure's own leg/
+  torso bounding box and the table's FULL screen footprint (not just the
+  rail, as v6's own check used) through the real camera matrix: moving the
+  figure further along Z alone never clears the overlap at this room's
+  fixed iso angle, because a larger Z offset shifts the figure's own
+  screen position diagonally in close to the same direction the table's
+  diamond-shaped footprint already spans — the two slide along roughly
+  parallel screen-space tracks no matter how far out Z goes. Standing to
+  the table's long (east/west) sides was tried next, but both sides
+  collide with a neighboring zone (karaoke's own west sofa to the east,
+  the partition wall to the west) at a large-enough clearance to actually
+  clear the overlap. Fixed by stepping sideways in X as well as back in Z
+  from each end — found by searching combined (x,z) offsets for one where
+  the figure's full screen bounding box has zero overlap with the table's,
+  not by eyeballing a screenshot. The two ends need OPPOSITE sideways
+  signs (this iso camera isn't left-right symmetric), confirmed
+  independently for each rather than assumed as a mirror image.
+- **The karaoke zone's music notes only bobbed by +/-0.04 in place** — too
+  subtle to actually notice next to every other activity's own loop (ball
+  rolls, cue swings, TV flickers), and with no glow on the karaoke screen
+  itself (v6's own fix) this was the zone's ONLY visible "on" signal
+  ("音符可以活动起来，活动明显一点才能看出来是音符"). Rebuilt as a real
+  rising, drifting, spinning, fading loop (~0.3 units of vertical travel
+  over a 3-second cycle, each note on its own material so its own fade
+  doesn't affect the other) — each note now reads as a distinct note
+  floating up and away, not a static dot.
+
+## Design correction, v6 — fixing v5's own regressions
+
+v5's corrections (below) introduced several real bugs of their own, caught
+by a real screenshot after v5 landed:
+
+- **The west wall's third door was moved to align with the pool table's
+  own depth**, reasoning "大致和桌球在一条线上" referred to this door. It
+  didn't — that phrase referred to the main (back-wall) door's own
+  alignment with the shelf. Moving the west door to the pool table's own
+  row put it directly through the movie zone's own wall-mounted TV, since
+  the pool table and the movie zone share the same row-3 depth — reverted
+  to v4's original, correct row (the shelf/study-tables' own latitude).
+- **The main door's position was made dependent on the shelf's own right
+  edge**, reasoning this was needed for "书架右边就是这扇门." This pushed
+  the door far left of its v4 position and left a long, suddenly-empty
+  stretch of the back wall where the door used to be, with nothing filling
+  it either. Reverted the door to v4's own independent formula (anchored
+  off the east wall); "书架右边就是这扇门" is satisfied by moving the SHELF
+  closer to where the door already was, not the other way around — though
+  note the shelf's own position wasn't actually the source of this
+  particular bug (see the two bugs below, which were).
+- **The bookshelf's two units were built flush against each other** (zero
+  gap), so they merged into one 1.8-wide solid block — but the study
+  table was placed centered in the x-position BETWEEN the two units' own
+  centers, assuming a real gap existed there. It didn't, so the table fell
+  partly inside both units' own solid bodies. Fixed by giving the two
+  units a real 0.15 gap, and by centering the table under the FIRST
+  unit's own x instead of a gap between units — simpler and avoids
+  depending on a gap width matching the table's own.
+- **The study tables shared the shelf's own Z position** rather than
+  sitting south of it, stacking them into the same row instead of the row
+  below it — and the shelf itself wasn't flush against the back wall
+  either, leaving an unexplained gap between the wall and the shelf with
+  nothing in it. Fixed by placing the shelf flush against the back wall
+  and the tables a real 0.15 south of the shelf's own front face.
+- **Table tennis was relocated into row 2, under the main door, rotated
+  90° as a whole group** to make its long axis match the room's other
+  rotated tables. But once the main door itself moved (see above), and
+  once the two study tables already occupied that general area, this put
+  table tennis somewhere it didn't belong and left the room's own true
+  bottom-right corner — between the main door and the east wall — entirely
+  without furniture ("明明这里有这么一大片空地"). Table tennis is
+  rotated the OPPOSITE way from pool (landscape, long axis along X, not
+  portrait) and moved into that actual open corner — matching the user's
+  real intent ("相对于台球桌来说旋转90度" meant relative to pool's own
+  rotation, landscape vs. portrait, not a further 90° on top of an
+  already-rotated group). The net's own local rotation (unchanged) still
+  correctly spans the table's short axis with no group rotation needed,
+  since removing the group rotation restores the table's original,
+  already-landscape local axes.
+- **The pool-table figures' own legs were visually occluded by the pool
+  table's own rail**, reading as unnaturally short, legless figures
+  ("蓝色小人为什么像侏儒") — the figures stood close enough to the table
+  that their legs' screen-space footprint overlapped the rail's own
+  footprint under this fixed camera, with the rail closer to the camera
+  and so occluding them. Confirmed by projecting both the figure's legs
+  and the table rail through the real camera matrix and checking their 2D
+  screen bounding boxes for overlap (not eyeballed) — found the overlap
+  at a 1.1-unit clearance from the table's own edge, cleared it entirely
+  at 1.2.
+- **The karaoke zone's floating music notes were positioned independently
+  of the figures they were meant to signal**, ending up roughly a meter
+  above and visibly offset sideways from the actual figures' own heads
+  ("音符应该放在两个人的脑袋旁边，现在太远了"). Fixed by building the notes
+  from the exact same (x, z) coordinates the karaoke figure slots
+  themselves use, at an actual standing-figure head height (~0.8, per
+  aa-room-figures.ts's own head-placement math) rather than an
+  independently-chosen y, so the two can never drift apart again.
+
+## Design correction, v5 — proportions, rotations, and two rendering bugs
+
+v4's floor plan was directionally right but still wrong in several
+specifics, caught once checked against a real screenshot and a more
+detailed description of the room:
+
+- **The movie zone was disproportionately large** for what's actually a
+  small corner — shrunk its floor patch, sofa, and partition wall
+  together.
+- **The pool table sat roughly equidistant between the movie and karaoke
+  zones**, reading as "just centered" rather than the deliberate "靠近电影
+  区" the room actually has — moved it to sit close to the movie zone's
+  own partition, with a visibly bigger gap to karaoke.
+- **The karaoke zone's three sofas were flush against each other**,
+  reading on screen as one continuous wraparound bench rather than three
+  separate sofas ("不是连起来的，是三条沙发") — rebuilt with a real gap at
+  each corner.
+- **Both screens (movie and karaoke) were floating**, with nothing
+  supporting them from below — each gets a real stand/table underneath,
+  matching what's actually in the room ("现实中它下面是有桌子的").
+- **The study tables kept their original landscape orientation** even
+  after the room's other tables (pool, table tennis) were rotated to
+  portrait — rotated to match.
+- **The bookshelf was a single unit**; widened to two, with the main door
+  repositioned to sit immediately on its right ("书架右边就是这扇门") —
+  this also moved the main door left from its v4 position, which had
+  drifted unnecessarily far from everything else on the back wall.
+- **The west wall's third door was aligned with the bookshelf/study
+  tables' own row**; moved to align with the pool table's own depth
+  instead ("大致和桌球在一条线上").
+- **Table tennis's net, ball trajectory, and figure slots never followed
+  the table's own portrait rotation** — the table itself was correctly
+  oriented in v4, but the net still spanned its long axis instead of the
+  short one, and figures stood at the long sides instead of the short
+  ends. Fixed by rotating the WHOLE group 90° rather than rebuilding each
+  child mesh's own geometry: the net's local rotation, the ball's motion
+  formula, and the figure slots' own coordinates are all unchanged from
+  the original orientation, and the group's rotation reorients everything
+  together — verified via each mesh's actual world-space bounding box
+  before this was written (otherwise two compounding 90° rotations — the
+  net's own local one plus the group's — are easy to get backwards).
+
+**Two real rendering bugs**, both caught by a real screenshot of the "on"
+state, not assumed from construction parameters:
+
+- **The movie TV's screen was larger than its own bracket** (0.8 wide vs.
+  the bracket's 0.6), so the lit glow visibly spilled past the physical
+  TV's own edges — an unoccluded floating rectangle of light rather than a
+  screen inset in a frame. Fixed by sizing the screen (0.5 x 0.35) inset
+  within the bracket's own face by a real bezel margin.
+- **The karaoke screen's glow, mounted on the panel's camera-facing side
+  (see v4's own note on why it has to face that way), visually reads as
+  the screen glowing toward the viewer** — but the real screen faces the
+  opposite direction (toward the sofas), so a glow on the camera-facing
+  side is backwards: "卡拉OK区的电视由于背对镜头，应该是看不到发光效果的."
+  Fixed by removing the emissive material entirely and signaling "on" with
+  a couple of small floating music notes above the singing figures
+  instead — a different mechanism than every other screen in this app
+  uses, but the correct one for a screen whose visible face and its real
+  orientation are necessarily mismatched by this camera's fixed angle.
+
+## Design correction, v4 — the room's real floor plan
+
+v3's re-layout (below) was itself wrong in several ways, caught once the
+resident commissioning this project described the room's actual floor
+plan in full rather than the fragment v3 was built from: the room reads
+noticeably more cramped than the real space, the two study tables sit
+side-by-side rather than stacked front-to-back, a third door exists on
+the wall nearest the bookshelf (not just the two on the back wall), the
+movie and karaoke zones were visually near-identical (both "a dark
+cabinet + one sofa facing it," with nothing distinguishing them), and the
+pool table's long axis ran left-to-right rather than front-to-back. None
+of this was a new fact changing the state model — every correction below
+is pure geometry.
+
+**Room footprint**: grown from 5.4 x 4.0 to 7.2 x 5.6 to read as the
+larger space the room actually is.
+
+**A third door, on the west wall** (the wall nearest the bookshelf and
+study tables, not the back wall), using the same wall-segment-and-frame
+construction as the back wall's own two doors. **The back wall gains a
+second, staff-only door** leading to AA Room's kitchen — deliberately
+undecorated (no furniture drawn behind it; the kitchen itself is out of
+this facility's scope), existing only as a doorway because the resident
+was explicit that only staff/event organisers ever use it. The bookshelf
+shifts right, off the spot the kitchen door now occupies.
+
+**The two study tables stack front-to-back**, not side-by-side, matching
+the real room (the user's own correction: "不是横着摆两张的，是竖着摆的").
+
+**The movie and karaoke zones are redesigned to be visually distinct**,
+having been near-identical in v3:
+- The movie zone's TV returns to being wall-mounted (on the west wall
+  this time, since the back wall is occupied by the bookshelf and two
+  doors), with the sofa facing it — the reverse of v3's freestanding-
+  cabinet-facing-sofa shape. A short partition wall stands east of the
+  sofa, matching a real short extended wall segment in the actual room
+  that blocks the pool table's light from reaching this corner; the
+  corner's own floor/sofa materials carry a fixed 0.65x darkening
+  (composed with, not replacing, freshness's own dim) to represent that
+  real light-blocking effect — a stable, numerically-checkable constant
+  rather than a real shadow, whose shape/darkness would depend on this
+  scene's specific light angle and never reliably read as "this one zone
+  is dimmer."
+- The karaoke zone becomes a U-shape: a screen on a small backdrop panel
+  on the room's east side, with long sofas on the other three sides (west,
+  north, south) enclosing an open floor area facing the screen, per the
+  user's own description ("卡拉OK区的电视机要靠着右下角的墙壁，另外三边都有长沙发").
+
+**The pool table rotates to portrait** (long axis front-to-back), per the
+user's own correction.
+
+**The bookshelf's books are fixed to actually render.** They were placed
+at local z=0, dead center of the shelf body's own ±0.13 depth — entirely
+buried inside the solid box and never visible, the same class of bug as a
+sound hole buried inside a bevel offset (`weasel-room.ts`'s own guitar-
+redesign history). Found by computing the shelf body's own world-space
+front face before placing a single book, not by eyeballing a screenshot.
+
+**Two screen-visibility bugs, both caught by projecting geometry through
+the real fixed-camera matrix before screenshotting** (the same discipline
+`otter-room.ts`'s own door-placement history established), not assumed
+from construction parameters:
+- The karaoke zone's first backdrop was a zero-thickness plane, the same
+  construction the room's own real walls use — but its west-facing normal
+  sits on the same side this camera always backface-culls away (the exact
+  fact Otter Room's window redesign had already run into), so it rendered
+  as nothing at all. Fixed by rebuilding it as a real `BoxGeometry` (a box
+  always has some face toward the camera, regardless of orientation) —
+  first at full wall height, which then read as an oversized blank panel
+  blocking the whole zone, corrected again down to a screen-sized panel.
+- Both the movie TV and the karaoke screen were, in turn, placed on the
+  far (away-from-camera) side of their own mounting block — buried behind
+  solid geometry from this camera's one fixed angle the same way the
+  bookshelf's books were, just along the depth axis instead of literally
+  inside another mesh. Fixed by moving each screen to its own mount's
+  near (camera-facing) face. For the karaoke screen specifically, this
+  meant mounting its glow toward the camera (+X) rather than strictly
+  toward the sofas (-X) it faces in the floor plan — a real tradeoff this
+  app has always made for every screen/window in it (nothing is ever
+  viewed from any angle but the one fixed camera actually renders).
+
+No change to the activity list, its validity constraints, or any part of
+the state model — v4 only touches `src/lib/hall-view/aa-room.ts`'s own
+geometry.
+
+## Design correction, v3 — karaoke, and a full room re-layout
+
+The original furniture layout (sofas + TV back-left, pool table centered,
+table tennis right, bookshelf back wall) was a reasonable first guess at
+how to arrange AA Room's named fixtures, but it was never checked against
+how the room is actually laid out in Toad Hall. Once asked directly, the
+real layout turned out to be more specific than "four zones somewhere in
+one room": a north-facing floor plan with the bookshelf and a real door in
+the back wall's two corners, two study tables and the table-tennis table
+directly beneath them, and three independent freestanding zones nearer the
+open front — the movie area (TV + sofa), the pool table, and a karaoke
+area (screen + sofas) that the single-activity-era furniture list never
+accounted for at all.
+
+Two changes follow from this:
+
+1. **The TV is no longer wall-mounted.** The back wall is now occupied by
+   the bookshelf and the door; the movie zone has no wall relationship in
+   the real layout (it is one of the three freestanding row-3 groups), so
+   the TV is rebuilt as a freestanding cabinet + screen, matching the pool
+   table and table-tennis table's own freestanding treatment rather than
+   being hung on whichever wall happened to be free.
+2. **A real door opening is cut into the back wall.** Every other facility
+   in this app treats its own open front (the camera-facing side) as the
+   one and only entrance, with a floor threshold marking it. AA Room's
+   household door sits on a different wall entirely — a separately
+   confirmed, real fact about this specific room, not a template applied
+   to a sixth facility. This is the first wall opening in the app rather
+   than a floor marking; it reuses the same "open border, nothing solid in
+   the gap" construction Otter Room's window settled on after an earlier
+   box-frame attempt occluded its own glass (`notes/adr/0004-otter-room-
+   live-state.md`'s own geometry notes), adapted for a full-height
+   passage rather than a window pane.
+
+**Karaoke** joins `tv`/`pool`/`table-tennis`/`hanging-out` as a sixth
+independent activity tag, confirmed as a real, separately-existing room
+fixture (a karaoke screen and its own sofas) rather than invented to fill
+out the new layout. It slots into the exact same model v2 established: an
+array of co-occurring tags, with `event` as the one exclusive exception.
+`VALID_AA_ROOM_ACTIVITIES`'s canonical order becomes `tv, pool,
+table-tennis, hanging-out, karaoke, event` — karaoke is inserted
+immediately before `event`, after every other independent tag, so the one
+structural exception stays last in the list it's excluded from.
+
+No change to Decision 2's validity constraints beyond this one addition:
+karaoke follows every rule `tv`/`pool`/`table-tennis`/`hanging-out`
+already follow (combinable with any of them, excluded by `event`,
+contributes figures/a flag independently — see
+`src/lib/hall-view/aa-room-status-look.ts`).
 
 ## Design correction, v2 — multiple simultaneous activities
 
@@ -231,7 +652,7 @@ Room: nothing in the given facts raises broken furniture as a concern
 this crit, and inventing an equipment-fault status here would be scope
 `FINAL_PROJECT_SOURCE_OF_TRUTH.md` never asked for.
 
-**Activities (v2 — current)** — five named values, `activities:
+**Activities (v3 — current)** — six named values, `activities:
 AaRoomActivity[]` on the state, replacing the single optional `activity`
 above:
 
@@ -244,12 +665,15 @@ above:
   array, because `occupied` must always carry at least one tag (see
   below) — there is no longer a value-free way to mean "present, nothing
   specific."
+- `karaoke` (v3) — a karaoke screen and its own sofas, a real,
+  separately-confirmed room fixture (see "Design correction, v3" above),
+  not an activity the room's furniture was redesigned to justify.
 - `event` — "often used for Hall activities": an organised, dorm-run
   activity that occupies the **entire room exclusively**. Unlike the
-  other four, `event` cannot combine with anything else — when `event` is
-  reported, none of `tv`/`pool`/`table-tennis`/`hanging-out` may also be
-  true, because a formal event genuinely excludes incidental concurrent
-  use the way the other four don't exclude each other.
+  other five, `event` cannot combine with anything else — when `event` is
+  reported, none of `tv`/`pool`/`table-tennis`/`hanging-out`/`karaoke` may
+  also be true, because a formal event genuinely excludes incidental
+  concurrent use the way the other five don't exclude each other.
 
 **Validity constraints**, enforced server-side on every write (seed and
 decay must also always produce a value obeying these, not just resident
@@ -265,12 +689,12 @@ reports):
 - `event` present → `activities` must be exactly `["event"]`; present
   alongside any other tag is rejected as a validation error, not silently
   resolved by dropping one side.
-- `tv`, `pool`, `table-tennis`, `hanging-out` may appear together in any
-  combination.
+- `tv`, `pool`, `table-tennis`, `hanging-out`, `karaoke` may appear
+  together in any combination.
 - `activities` is deduplicated and stored/returned in a fixed canonical
-  order (`tv, pool, table-tennis, hanging-out, event`) regardless of the
-  order a client submitted them in — so two reports of the same set never
-  look like a change, and `version`/SSE/409 payloads are stable to
+  order (`tv, pool, table-tennis, hanging-out, karaoke, event`) regardless
+  of the order a client submitted them in — so two reports of the same set
+  never look like a change, and `version`/SSE/409 payloads are stable to
   compare.
 
 No `out-of-order`-equivalent status exists for AA Room, same reasoning as

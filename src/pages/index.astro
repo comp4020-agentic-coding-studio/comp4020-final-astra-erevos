@@ -151,6 +151,7 @@ const AA_ROOM_ACTIVITY_META: Record<AaRoomActivity, { label: string; checkboxLab
   pool: { label: "Pool", checkboxLabel: "Playing pool" },
   "table-tennis": { label: "Table tennis", checkboxLabel: "Table tennis" },
   "hanging-out": { label: "Hanging out", checkboxLabel: "Hanging out" },
+  karaoke: { label: "Karaoke", checkboxLabel: "Karaoke" },
   event: { label: "Event", checkboxLabel: "Hall event" },
 };
 
@@ -1302,8 +1303,8 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         outline-offset: 1px;
       }
       /* Disabled (via syncActivityControls() in the report script, e.g.
-         the other four activities while "Hall event" is checked) reads
-         as a real constraint, not a layout glitch. */
+         the other non-event activities while "Hall event" is checked)
+         reads as a real constraint, not a layout glitch. */
       .aa-room-toggle input:disabled {
         cursor: not-allowed;
       }
@@ -2058,19 +2059,20 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
               </label>
             </fieldset>
             {/* v2: a multi-select toggle group replaces the single
-                activity <select> — tv/pool/table-tennis/hanging-out can be
-                toggled in any combination; "Hall event" is mutually
-                exclusive with the other four (the report script's
-                syncActivityControls() enforces this both ways: checking
-                Event disables the other four, checking any of the other
-                four disables Event — see notes/adr/0003-aa-room-live-
-                state.md, "Validity constraints"). Disabled together
-                whenever occupancy isn't "occupied", same "never carry a
-                stale selection into the wrong kind of report" discipline
-                the old single-select had. Pre-checked from the real
-                current activities for the same reason occupancy is. */}
+                activity <select> — tv/pool/table-tennis/hanging-out/
+                karaoke (v3) can be toggled in any combination; "Hall
+                event" is mutually exclusive with the other five (the
+                report script's syncActivityControls() enforces this both
+                ways: checking Event disables the other five, checking any
+                of the other five disables Event — see notes/adr/0003-aa-
+                room-live-state.md, "Validity constraints"). Disabled
+                together whenever occupancy isn't "occupied", same "never
+                carry a stale selection into the wrong kind of report"
+                discipline the old single-select had. Pre-checked from the
+                real current activities for the same reason occupancy
+                is. */}
             <fieldset class="aa-room-toggle-group aa-room-activities" aria-label="What's happening">
-              {(["tv", "pool", "table-tennis", "hanging-out", "event"] as const).map((activity) => (
+              {(["tv", "pool", "table-tennis", "hanging-out", "karaoke", "event"] as const).map((activity) => (
                 <label class="aa-room-toggle">
                   <input
                     type="checkbox"
@@ -2708,7 +2710,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
 
       interface AaRoomSceneState {
         occupancy: "empty" | "occupied" | "unknown";
-        activities: ("tv" | "pool" | "table-tennis" | "hanging-out" | "event")[];
+        activities: ("tv" | "pool" | "table-tennis" | "hanging-out" | "karaoke" | "event")[];
         confirmedAt: number | null;
         version: number;
         freshness: "fresh" | "stale" | null;
@@ -3185,7 +3187,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       import { applyAaRoomStateToScene } from "../lib/hall-view/scene.ts";
 
       type AaRoomOccupancy = "empty" | "occupied" | "unknown";
-      type AaRoomActivity = "tv" | "pool" | "table-tennis" | "hanging-out" | "event";
+      type AaRoomActivity = "tv" | "pool" | "table-tennis" | "hanging-out" | "karaoke" | "event";
       interface AaRoomState {
         occupancy: AaRoomOccupancy;
         activities: AaRoomActivity[];
@@ -3204,6 +3206,7 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         pool: { label: "Pool" },
         "table-tennis": { label: "Table tennis" },
         "hanging-out": { label: "Hanging out" },
+        karaoke: { label: "Karaoke" },
         event: { label: "Event" },
       };
 
@@ -3304,15 +3307,15 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // triggering condition no longer holds. See
       // notes/adr/0003-aa-room-live-state.md, "Validity constraints":
       // - occupancy "empty" -> every checkbox unchecked AND disabled.
-      // - occupancy "occupied" + Event checked -> the other four
-      //   unchecked AND disabled (Event stays enabled/checked).
-      // - occupancy "occupied" + Event unchecked -> the other four
-      //   re-enabled (never left disabled from an earlier Event
-      //   selection that's since been undone).
-      // - occupancy "occupied" + any of the other four checked -> Event
+      // - occupancy "occupied" + Event checked -> the other non-event
+      //   activities unchecked AND disabled (Event stays enabled/checked).
+      // - occupancy "occupied" + Event unchecked -> the other non-event
+      //   activities re-enabled (never left disabled from an earlier
+      //   Event selection that's since been undone).
+      // - occupancy "occupied" + any non-event activity checked -> Event
       //   unchecked AND disabled.
-      // - occupancy "occupied" + all of the other four unchecked -> Event
-      //   re-enabled (same "no stuck-disabled state" guarantee).
+      // - occupancy "occupied" + every non-event activity unchecked ->
+      //   Event re-enabled (same "no stuck-disabled state" guarantee).
       function syncActivityControls(): void {
         if (occupancyRadios.length === 0 || activityCheckboxes.length === 0) return;
         const occupied = occupancyValue() === "occupied";

@@ -107,6 +107,27 @@ it("persists and canonically orders multiple simultaneous non-event activities",
   expect(room.activities).toEqual(["tv", "table-tennis", "hanging-out"]);
 });
 
+// v3 (notes/adr/0003-aa-room-live-state.md, "Design correction, v3"):
+// "karaoke" persists and canonically orders the same way every other
+// non-event activity already does.
+it("persists and canonically orders karaoke combined with other non-event activities", () => {
+  const store = freshTestStore();
+  seedAaRoomIfEmpty(store);
+
+  const reportedAt = 1_700_000_000_000;
+  const result = reportAaRoomStatus(
+    { occupancy: "occupied", activities: ["karaoke", "tv"], reporterId: "test-actor" },
+    1,
+    reportedAt,
+    store,
+  );
+  expect(result.ok).toBe(true);
+  expect(result.ok && result.room.activities).toEqual(["tv", "karaoke"]);
+
+  const room = getAaRoom(reportedAt + 1000, store);
+  expect(room.activities).toEqual(["tv", "karaoke"]);
+});
+
 it("a report read back past the fresh threshold but short of expiry reads as stale, with the stored occupancy untouched", () => {
   const store = freshTestStore();
   seedAaRoomIfEmpty(store);

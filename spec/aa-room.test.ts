@@ -87,12 +87,44 @@ it("accepts and round-trips multiple simultaneous non-event activities", async (
   });
   expect(patch.status).toBe(200);
   const body = await patch.json();
-  // Canonical order (tv, pool, table-tennis, hanging-out, event) — not
-  // the order submitted.
+  // Canonical order (tv, pool, table-tennis, hanging-out, karaoke, event)
+  // — not the order submitted.
   expect(body.activities).toEqual(["tv", "table-tennis", "hanging-out"]);
 
   const after = await fetch(new URL("/api/aa-room", baseUrl));
   expect((await after.json()).activities).toEqual(["tv", "table-tennis", "hanging-out"]);
+});
+
+// v3 (notes/adr/0003-aa-room-live-state.md, "Design correction, v3"):
+// "karaoke" slots into the same independent-tag model as tv/pool/table-
+// tennis/hanging-out — combinable with any of them, canonically ordered
+// after "hanging-out" and before "event".
+it("accepts karaoke combined with other non-event activities, in canonical order", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: ["karaoke", "pool", "hanging-out"], ifVersion }),
+  });
+  expect(patch.status).toBe(200);
+  const body = await patch.json();
+  expect(body.activities).toEqual(["pool", "hanging-out", "karaoke"]);
+
+  const after = await fetch(new URL("/api/aa-room", baseUrl));
+  expect((await after.json()).activities).toEqual(["pool", "hanging-out", "karaoke"]);
+});
+
+it("rejects karaoke combined with event", async () => {
+  const ifVersion = await currentVersion();
+  const patch = await fetch(new URL("/api/aa-room", baseUrl), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ occupancy: "occupied", activities: ["event", "karaoke"], ifVersion }),
+  });
+  expect(patch.status).toBe(400);
+
+  const after = await fetch(new URL("/api/aa-room", baseUrl));
+  expect((await after.json()).version).toBe(ifVersion);
 });
 
 it("deduplicates a repeated activity and canonically orders the result", async () => {
@@ -195,7 +227,7 @@ it("rejects a client reporting occupancy unknown, even though it's a valid store
   expect(body.version).toBe(ifVersion);
 });
 
-it("rejects an activities array containing a tag outside the five named values", async () => {
+it("rejects an activities array containing a tag outside the six named values", async () => {
   const ifVersion = await currentVersion();
   const patch = await fetch(new URL("/api/aa-room", baseUrl), {
     method: "PATCH",
