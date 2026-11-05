@@ -51,14 +51,31 @@ export function buildFigure(seed: string, pose: FigurePose, position: THREE.Vect
   // "crude but readable" brief. "hangout" in AA Room stands near the
   // bookshelf (no sofa there to sit on) — a design correction after the
   // original seated build read as a legless "dwarf" once these slots
-  // moved off the sofa to open floor; "sofa" keeps the seated build since
-  // it's genuinely seated furniture.
+  // moved off the sofa to open floor. "sofa" gets the same standing
+  // treatment for the same reason: despite its name, "sofa" is only ever
+  // used by EVENT_FIGURES (aa-room-status-look.ts), placed at
+  // EVENT_SLOTS (aa-room.ts) — open floor, never a real sofa — so the
+  // seated build's skipped legs read as a floating, legless torso there
+  // too, never actually caught because nobody had looked closely at the
+  // event view until this fix. "tv" is the one pose that keeps the seated
+  // build, since it's the only one actually placed on real seated
+  // furniture (the movie sofa).
   // "karaoke" is standing (singing in front of the screen, not sitting on
   // the karaoke sofas — the sofas are for the audience, not modeled as
   // figures here, same restraint as every other zone's small fixed count).
-  const seated = pose === "sofa" || pose === "tv";
+  const seated = pose === "tv";
   const torsoHeight = seated ? 0.32 : 0.55;
-  const torsoY = seated ? 0.28 : 0.42;
+  // Seated torsoY is the BOX'S OWN CENTER, not an arbitrary sit height —
+  // it must sit torsoHeight/2 ABOVE the movie sofa's own real seat
+  // surface (aa-room.ts's movieSofaBase: a 0.32-tall seat centered at
+  // y=0.16, so its top face is at 0.32), so the torso's own bottom face
+  // lands flush on the seat rather than through it. Same bug, same root
+  // cause, as every chair-seated figure fixed across the other five
+  // facilities (see notes/adr/0006-weasel-room-live-state.md, "Design
+  // correction, v2") — AA Room's own sofa just has a different real seat
+  // height than those rooms' chairs.
+  const SOFA_SEAT_TOP = 0.32;
+  const torsoY = seated ? SOFA_SEAT_TOP + torsoHeight / 2 : 0.42;
 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.26, torsoHeight, 0.18), bodyMaterial);
   torso.position.set(0, torsoY, 0);

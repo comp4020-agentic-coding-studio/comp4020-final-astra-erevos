@@ -1,7 +1,7 @@
 # ADR 0003: AA Room's shared live state
 
-**Status**: Implemented and verified live, with nine design corrections
-(see "Design correction, v2" through "v10" below). v2 was made after Stage
+**Status**: Implemented and verified live, with ten design corrections
+(see "Design correction, v2" through "v11" below). v2 was made after Stage
 4's 3D work exposed that v1's single-activity model didn't match how the
 room is actually used; v3 adds a sixth activity (karaoke) confirmed as a
 real, separately-existing room fixture alongside a first re-layout of the
@@ -22,17 +22,50 @@ it was clear that offset was the wrong fix; v10 fixes pool/table-tennis
 figures' own facing (a shared constant rotation only happened to be
 correct for one of each pair's two slots), enlarges the movie zone's TV
 and adds floor speakers beneath it, and adds a colored ball cluster to the
-pool table. Every correction from v3 on is geometry-only; Decision 1 and
-part of Decision 2's activity list are superseded by the v2 correction,
-and the activity list is further extended by v3 — no change to the state
-model at all from v4 on. Verified live in the deployment headed by
-`d824aec` (CI green, production version 34) — `PROCESS.md`'s own "Otter
-Room" entry, which that commit closes out, records the post-deploy smoke
-check that confirmed AA Room's report flow and cross-session SSE sync
-working live, not just locally — and every facility-regression smoke
-check run for each later facility (Rabbit Room through Rat Room) has
-continued to re-confirm AA Room alongside the newer
+pool table; v11 fixes the "tv"/"sofa" seated figures' own chair/sofa-
+clipping bug, the same root cause as every other facility's own seated
+figure (see notes/adr/0006-weasel-room-live-state.md, "Design correction,
+v2"), and separately corrects "sofa"'s own build — despite its name, it
+was never actually placed on a real sofa. Every correction from v3 on is
+geometry-only; Decision 1 and part of Decision 2's activity list are
+superseded by the v2 correction, and the activity list is further extended
+by v3 — no change to the state model at all from v4 on. Verified live in
+the deployment headed by `d824aec` (CI green, production version 34) —
+`PROCESS.md`'s own "Otter Room" entry, which that commit closes out,
+records the post-deploy smoke check that confirmed AA Room's report flow
+and cross-session SSE sync working live, not just locally — and every
+facility-regression smoke check run for each later facility (Rabbit Room
+through Rat Room) has continued to re-confirm AA Room alongside the newer
 work — see each of those milestones' own entries in `PROCESS.md`.
+
+## Design correction, v11 — "tv"/"sofa" seated figures' own clipping, and "sofa"'s mislabeled build
+
+- **The "tv" figure's torso box clipped through the movie sofa's own seat
+  cushion** — the same bug, same root cause, as every chair-seated figure
+  fixed across the other five facilities (see
+  notes/adr/0006-weasel-room-live-state.md, "Design correction, v2"):
+  `aa-room-figures.ts`'s seated `torsoY` (0.28) was an arbitrary sit
+  height, never derived from the room's own movie sofa geometry
+  (`aa-room.ts`'s `movieSofaBase`: a 0.32-tall seat centered at y=0.16,
+  so its real top face sits at y=0.32). Not visible to the naked eye at
+  this room's own camera angle/zoom the way the chair version was
+  ("AA room肉眼看不出问题") — confirmed only by checking the same
+  torsoY-vs-seat-top arithmetic that caught every other room's version of
+  this bug, not by a fresh visual complaint. Fixed by deriving `torsoY`
+  from the sofa's own seat-top height plus half the torso's own height.
+- **"sofa" was never actually placed on a real sofa at all, despite its
+  name and its own code comment claiming otherwise** — it's only ever
+  used by `EVENT_FIGURES` (`aa-room-status-look.ts`), placed at
+  `EVENT_SLOTS` (`aa-room.ts`), which are open floor positions created in
+  v10's own event-figure-count fix. Since the seated build skips leg
+  construction entirely, this rendered as a floating, legless torso on
+  open floor — the exact same "dwarf" bug class as v9's `hangout` fix,
+  just never caught because nobody had looked closely at the event
+  view's own figures until this pass. Fixed the same way v9 fixed
+  `hangout`: "sofa" now uses the standing body plan (full torso height,
+  legs) instead of the seated one. "tv" remains the only pose using the
+  seated build, since it's the only one actually placed on real seated
+  furniture.
 
 ## Design correction, v10 — event's own figure count, movie-zone TV/speakers, pool balls, and pool/table-tennis facing
 
