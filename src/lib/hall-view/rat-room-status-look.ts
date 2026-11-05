@@ -6,42 +6,31 @@
 // the dashboard panel, SSE payloads, or report logic — those are
 // untouched; this only re-renders them.
 //
-// STRUCTURALLY DIFFERENT FROM EVERY SIBLING ROOM'S OWN STATUS-LOOK FILE:
-// this module takes the ALREADY-DERIVED three-valued room `visual`
-// ("empty" | "occupied" | "unknown" — summarizeRatRoomSeats() in
-// src/lib/types.ts), never a single room's own occupancy and never any
-// of the ten individual seats' own states. See
-// notes/adr/0008-rat-room-live-state.md, Decision 4: the 3D scene is one
-// more consumer of the same purely-derived aggregate the panel's summary
-// line already uses, not a second place that re-derives (or, worse,
-// persists) a room-level fact. There is no occupiedCount/emptyCount/
-// unknownCount parameter here on purpose — this file must never read
-// exact counts, only the one already-reduced `visual` value, so it
-// structurally cannot vary its look by how many seats are occupied.
-import type { RatRoomSummary } from "../types.ts";
-
-export type RatRoomFigurePose = "seated" | "standing";
+// Design correction (notes/adr/0008-rat-room-live-state.md, "Design
+// correction, v3"): this module used to take ONLY the already-derived
+// three-valued room `visual`, deliberately never any individual seat's
+// own state, per the ADR's original Decision 4/5 ("no A-J-to-figure
+// mapping," "figure count never corresponds to occupied-seat count"). A
+// real-person review of the room asked for the opposite: each seat's own
+// state should visibly correspond to its own real workstation, so a
+// resident can tell AT A GLANCE which of the ten seats are actually free
+// from the 3D scene itself, not only from the panel's ten cards. This
+// module now takes each seat's own occupancy too — a deliberate,
+// documented reversal of the ADR's original "purely decorative, no
+// mapping" stance, not an oversight. `visual` is still passed
+// separately and still drives ONLY desaturate/dim (never figures) —
+// every other facility's own "only unknown dims the room" rule is
+// unchanged here.
+import type { RatRoomSeatId, RatRoomSeatOccupancy, RatRoomSummary } from "../types.ts";
 
 export interface RatRoomLook {
-  /** How many low-poly figures to show, and in what pose. Empty = no one visibly using the room (derived-empty or derived-unknown alike). */
-  figures: RatRoomFigurePose[];
+  /** Exactly the seats currently "occupied" — one seated figure per entry, placed at that seat's own real workstation (rat-room.ts's own SEAT_WORKSTATIONS map). Never "empty"/"unknown" seats — those show an empty chair, no figure. */
+  occupiedSeats: RatRoomSeatId[];
   /** 0–1 desaturation pulled over the whole room's materials — derived-unknown only (no "stale" concept here, same as every other occupancy-only facility). */
   desaturate: number;
   /** 0–1 dimming of the room's own lighting contribution — derived-unknown only; derived-empty/occupied are always 1 (full brightness). */
   dim: number;
 }
-
-// A small, deliberately neutral group — reads as "a few residents are
-// using the room right now," never a headcount and never tied to any
-// specific seat. Two seated (at different, unlabeled workstations) plus
-// one standing nearby is a believable "the room is in use" without
-// implying exactly how many of the ten seats are occupied — the same
-// "purely decorative, never a real count" rule every other facility's
-// own figures already follow, here doubly true since this room's own
-// figure count must not vary with occupiedCount even in principle (ADR
-// 0008, Decision 5: "3D decorative figure count also doesn't correspond
-// to occupied-seat count").
-const OCCUPIED_FIGURES: RatRoomFigurePose[] = ["seated", "seated", "standing"];
 
 // Visual-only constants (not a decay threshold — see CLAUDE.md's "do not
 // invent decay/staleness thresholds," which governs the stored model, not
@@ -51,21 +40,29 @@ const UNKNOWN_DESATURATE = 0.75;
 const UNKNOWN_DIM = 0.55;
 
 /**
- * Maps Rat Room's already-derived room `visual` to a steady-state visual
- * description. `empty` always means no figures, but a normally-lit
- * room — a real, confirmed observation (all ten seats confirmed empty),
- * not an absence of information, so it must not look muted the way
- * `unknown` does. `unknown` always means no figures AND a muted room —
- * the same treatment every other facility's own unknown state gets,
- * never "broken" or "failed to load," and covers BOTH "all ten seats
- * genuinely unknown" and "no seat occupied, but at least one unknown" —
- * the honest-middle case ADR 0008, Decision 4 describes — identically:
- * this function only ever sees the one already-reduced `visual` value,
- * never which specific combination of seats produced it.
+ * Maps each of Rat Room's ten seats' own occupancy, plus the room's
+ * already-derived `visual`, to a steady-state visual description. A seat
+ * shows a figure if and only if that SPECIFIC seat's own occupancy is
+ * "occupied" — "empty" and "unknown" both show the same bare chair, no
+ * visual distinction between them (an unconfirmed seat is not asserted
+ * to be either free or in use, so it gets neither "confirmed empty"'s
+ * nor "confirmed occupied"'s own signal — see the file's own top note).
+ * `visual`'s role is unchanged from before this correction: only
+ * `unknown` (no seat occupied, but at least one seat unknown) dims/
+ * desaturates the WHOLE room — `empty` (all ten seats confirmed empty)
+ * is a real, confirmed observation and stays fully lit, the same "only
+ * absence-of-information looks muted" rule every other facility's own
+ * look enforces.
  */
-export function lookForRatRoom(visual: RatRoomSummary["visual"]): RatRoomLook {
-  const figures = visual === "occupied" ? OCCUPIED_FIGURES : [];
+export function lookForRatRoom(
+  seatOccupancies: ReadonlyMap<RatRoomSeatId, RatRoomSeatOccupancy>,
+  visual: RatRoomSummary["visual"],
+): RatRoomLook {
+  const occupiedSeats: RatRoomSeatId[] = [];
+  for (const [seat, occupancy] of seatOccupancies) {
+    if (occupancy === "occupied") occupiedSeats.push(seat);
+  }
   const desaturate = visual === "unknown" ? UNKNOWN_DESATURATE : 0;
   const dim = visual === "unknown" ? UNKNOWN_DIM : 1;
-  return { figures, desaturate, dim };
+  return { occupiedSeats, desaturate, dim };
 }

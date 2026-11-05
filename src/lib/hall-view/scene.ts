@@ -48,7 +48,7 @@
 // hover/focus/tween logic changed — only who calls requestAnimationFrame
 // and owns the WebGLRenderer instance.
 import * as THREE from "three";
-import type { AaRoomState, BadgerRoomState, Location, Machine, MachineType, OtterRoomState, RabbitRoomState, RatRoomSummary, WeaselRoomState } from "../types.ts";
+import type { AaRoomState, BadgerRoomState, Location, Machine, MachineType, OtterRoomState, RabbitRoomState, RatRoomSeatId, RatRoomSeatOccupancy, RatRoomSummary, WeaselRoomState } from "../types.ts";
 import { buildRoom } from "./room.ts";
 import { buildAaRoom } from "./aa-room.ts";
 import { buildOtterRoom } from "./otter-room.ts";
@@ -1040,22 +1040,26 @@ export function mountBadgerRoom(container: HTMLElement, initial: BadgerRoomState
 }
 
 // Rat Room — the same one-Set-of-callbacks subscriber shape
-// mountedBadgerRoomScenes uses, EXCEPT it carries the already-DERIVED
-// room `visual`, never a single room's own occupancy and never any one
-// of the ten seats' own state: index.astro's Rat Room panel script
-// recomputes summarizeRatRoomSeats() over its own ten-seat cache on
-// every SSE update (see that script's own renderRatRoomSummaryEl note)
-// and calls applyRatRoomStateToScene() with only the resulting `visual`
-// — this module never has access to, and never needs, the individual
-// seats themselves. See notes/adr/0008-rat-room-live-state.md, Decision
-// 4.
+// mountedBadgerRoomScenes uses, EXCEPT it carries each of the ten seats'
+// own current occupancy ALONGSIDE the already-derived room `visual` —
+// the Design correction in notes/adr/0008-rat-room-live-state.md
+// ("Design correction, v3") that reverses this module's original
+// "visual only, never any individual seat's own state" shape, after a
+// real-person review asked for each seat's own state to visibly
+// correspond to its own workstation in the 3D scene. index.astro's Rat
+// Room panel script recomputes both the per-seat occupancy map and
+// summarizeRatRoomSeats() over its own ten-seat cache on every SSE
+// update and calls applyRatRoomStateToScene() with both.
 interface MountedRatRoomScene {
-  applyState(visual: RatRoomSummary["visual"]): void;
+  applyState(seatOccupancies: ReadonlyMap<RatRoomSeatId, RatRoomSeatOccupancy>, visual: RatRoomSummary["visual"]): void;
 }
 const mountedRatRoomScenes = new Set<MountedRatRoomScene>();
 
-export function applyRatRoomStateToScene(visual: RatRoomSummary["visual"]): void {
-  for (const scene of mountedRatRoomScenes) scene.applyState(visual);
+export function applyRatRoomStateToScene(
+  seatOccupancies: ReadonlyMap<RatRoomSeatId, RatRoomSeatOccupancy>,
+  visual: RatRoomSummary["visual"],
+): void {
+  for (const scene of mountedRatRoomScenes) scene.applyState(seatOccupancies, visual);
 }
 
 // Rat Room's mount — the seventh facility registered against the exact
@@ -1063,7 +1067,11 @@ export function applyRatRoomStateToScene(visual: RatRoomSummary["visual"]): void
 // uses. No second WebGLRenderer, no second requestAnimationFrame loop.
 // Like every prior single-row room, Rat Room's one diorama has no
 // hall-layout.ts-style placement and no interaction at all.
-export function mountRatRoom(container: HTMLElement, initialVisual: RatRoomSummary["visual"]): HallViewHandle {
+export function mountRatRoom(
+  container: HTMLElement,
+  initialSeatOccupancies: ReadonlyMap<RatRoomSeatId, RatRoomSeatOccupancy>,
+  initialVisual: RatRoomSummary["visual"],
+): HallViewHandle {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf6efe1); // --page, same as every other facility's
 
@@ -1088,7 +1096,7 @@ export function mountRatRoom(container: HTMLElement, initialVisual: RatRoomSumma
 
   const room = buildRatRoom();
   scene.add(room.group);
-  room.applyState(initialVisual);
+  room.applyState(initialSeatOccupancies, initialVisual);
 
   const overviewLookAt = new THREE.Vector3();
   let overviewZoom = 1;
@@ -1121,8 +1129,8 @@ export function mountRatRoom(container: HTMLElement, initialVisual: RatRoomSumma
   let elapsed = 0;
 
   const registeredScene: MountedRatRoomScene = {
-    applyState(visual) {
-      room.applyState(visual);
+    applyState(seatOccupancies, visual) {
+      room.applyState(seatOccupancies, visual);
       if (prefersReducedMotion) {
         // Same reduced-motion contract as every other facility's mount:
         // every loop (here, just figure idle sway) stops at a single

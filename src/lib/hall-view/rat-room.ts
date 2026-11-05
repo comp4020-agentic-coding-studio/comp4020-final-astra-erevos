@@ -1,12 +1,12 @@
 // Rat Room's 3D diorama. Stage 1 built the room's real static geometry
-// (perimeter computer desks, a printer, a door threshold); Stage 2 (this
-// file, current version) adds the occupancy-driven look — figures for
-// derived-"occupied," none for derived-"empty"/"unknown," and a
-// muted/dimmed room for derived-"unknown" — per
-// notes/adr/0008-rat-room-live-state.md. Same cutaway low-poly visual
-// language as room.ts/aa-room.ts/otter-room.ts/rabbit-room.ts/
-// weasel-room.ts/badger-room.ts, mounted on the ONE shared renderer
-// (renderer-host.ts), never a second WebGLRenderer.
+// (perimeter computer desks, a printer, a door threshold); Stage 2 adds
+// the occupancy-driven look; the current version (Design correction, v3
+// — see notes/adr/0008-rat-room-live-state.md) makes each of the ten
+// real A-J seats visually correspond to a specific workstation built
+// below. Same cutaway low-poly visual language as room.ts/aa-room.ts/
+// otter-room.ts/rabbit-room.ts/weasel-room.ts/badger-room.ts, mounted on
+// the ONE shared renderer (renderer-host.ts), never a second
+// WebGLRenderer.
 //
 // REAL, CONFIRMED FACTS ONLY (see the brief this stage was built from): a
 // wide, shallow rectangular room — clearly wider than deep, unlike every
@@ -16,26 +16,33 @@
 // confirmed furniture (no whiteboard, no heater, no sofa, no central
 // table, no shelves) — none are added here.
 //
-// THE A-J PRODUCT MODEL IS NOT A 3D REQUIREMENT: ADR 0008 commits to
-// exactly ten fixed, reportable seat slots (A-J) as a PRODUCT decision,
-// independent of the room's own "approximately ten" physical count (ADR
-// 0008, Context). This file draws roughly ten computer workstations so
-// the room reads clearly as a computer lab, but this is a DECORATIVE
-// APPROXIMATION of the real room's furniture, not a rendering of the
-// product's seat slots — there is no workstation-to-seat mapping
-// anywhere in this file (no workstation is "seat A," no workstation
-// index corresponds to a seat letter). THIS HOLDS FOR STAGE 2'S FIGURES
-// TOO: applyState() below takes only the already-DERIVED three-valued
-// room `visual` (summarizeRatRoomSeats() in src/lib/types.ts), never any
-// individual seat's own state and never occupiedCount/emptyCount/
-// unknownCount — the figure count is a small, fixed constant
-// (rat-room-status-look.ts's own OCCUPIED_FIGURES) that never varies
-// with how many of the ten seats are actually occupied, the exact same
-// "decorative, never a real count" rule every other room's own figures
-// already follow for headcount. Figures are never placed AT one of the
-// workstations built below — they sit in the room's own open central
-// area, deliberately clear of every named workstation, so nothing here
-// could even be misread as "this specific desk is occupied."
+// THE A-J PRODUCT MODEL IS NOT A 3D REQUIREMENT, BUT THIS FILE NOW MAPS
+// IT ANYWAY, DELIBERATELY: ADR 0008 commits to exactly ten fixed,
+// reportable seat slots (A-J) as a PRODUCT decision, independent of the
+// room's own "approximately ten" physical count (ADR 0008, Context).
+// This file draws roughly ten computer workstations so the room reads
+// clearly as a computer lab — still a DECORATIVE APPROXIMATION of the
+// real room's furniture, not a precise physical recount. ADR 0008's
+// ORIGINAL Decision 4/5 explicitly ruled out any workstation-to-seat
+// mapping; this was DELIBERATELY REVERSED (see the ADR's own "Design
+// correction, v3") after a real-person review asked for each seat's own
+// state to be visible at a glance in the 3D scene, not only on the
+// panel's ten cards. SEAT_WORKSTATIONS below (defined further down,
+// after the geometry loops it's derived from) is now the single source
+// of truth for which real workstation represents which seat letter —
+// ordered clockwise starting at the door (south-west corner): west wall
+// south-to-north (A, B), north wall west-to-east (C, D, E, F), east wall
+// north-to-south back toward the door (G, H, I, J). applyState() below
+// takes each of the ten seats' own current occupancy (a
+// `ReadonlyMap<RatRoomSeatId, RatRoomSeatOccupancy>`) AND the room's
+// still-separately-derived `visual` (summarizeRatRoomSeats() in
+// src/lib/types.ts) — `visual` drives ONLY desaturate/dim, unchanged
+// from before this correction (see rat-room-status-look.ts's own note).
+// The figure count now DOES vary with how many of the ten seats are
+// actually occupied — a deliberate departure from every other room's own
+// "decorative, never a real count" rule, since this room's whole point
+// (post-correction) is that a resident can read exactly which seats are
+// free from the 3D scene alone.
 //
 // WALL VISIBILITY, CHECKED BEFORE PLACING ANYTHING (not assumed, and not
 // copied from another room's layout): this app's rooms rely on ordinary
@@ -74,7 +81,7 @@
 // where the door is without requiring — or breaking — the existing fixed
 // dollhouse camera.
 import * as THREE from "three";
-import type { RatRoomSummary } from "../types.ts";
+import type { RatRoomSeatId, RatRoomSeatOccupancy, RatRoomSummary } from "../types.ts";
 import { buildRatRoomFigure, type RatRoomFigureHandle } from "./rat-room-figures.ts";
 import { lookForRatRoom } from "./rat-room-status-look.ts";
 
@@ -82,8 +89,8 @@ export interface RatRoomHandle {
   group: THREE.Group;
   /** Every frame, elapsed seconds — drives figure idle sway. Caller skips calling this under reduced motion (see scene.ts), same convention as every other facility's update(). */
   update(elapsedSeconds: number): void;
-  /** Applies a new DERIVED room visual's look — rebuilds which figures are present and sets desaturate/dim. Takes only the already-reduced `visual` value (summarizeRatRoomSeats() in src/lib/types.ts), never any individual seat's own state — see the file's own top note. Furniture (desks, monitors, chairs, printer, door threshold) is never added/removed here — only figures are visual-dependent, and there are no occupied-only activity props at all. expectedEndAt plays no role here at any seat (ADR 0008: it never changes the scene, still just whichever visual the ten seats currently derive to). */
-  applyState(visual: RatRoomSummary["visual"]): void;
+  /** Applies a new state: each of the ten seats' own current occupancy (a seated figure appears at exactly the occupied seats' own real workstations — see SEAT_WORKSTATIONS below, and notes/adr/0008-rat-room-live-state.md, "Design correction, v3"), plus the room's already-derived `visual` (summarizeRatRoomSeats() in src/lib/types.ts), which drives ONLY desaturate/dim, unchanged from before this correction. Furniture (desks, monitors, chairs, printer, door threshold) is never added/removed here — only figures are state-dependent, and there are no occupied-only activity props at all. expectedEndAt plays no role here at any seat (ADR 0008: it never changes the scene). */
+  applyState(seatOccupancies: ReadonlyMap<RatRoomSeatId, RatRoomSeatOccupancy>, visual: RatRoomSummary["visual"]): void;
 }
 
 // Wide and shallow — clearly wider (X) than deep (Z), unlike every other
@@ -274,23 +281,82 @@ export function buildRatRoom(): RatRoomHandle {
     group.add(station);
   }
 
+  // --- SEAT_WORKSTATIONS: maps each of the ten real A-J seats (see
+  // src/lib/types.ts's RAT_ROOM_SEAT_IDS) to the specific workstation
+  // built above that now visually represents it — the Design correction
+  // in notes/adr/0008-rat-room-live-state.md ("Design correction, v3")
+  // that reverses the ADR's original "no seat-to-workstation mapping"
+  // stance. Ordered clockwise starting at the door (south-west corner),
+  // confirmed against the room's own real compass layout (file's own top
+  // note: south/door = open front = +Z, west = -X/left wall, north =
+  // -Z/back wall, east = +X/right wall): west wall south-to-north (A,
+  // near the door, then B, near the printer), then north wall west-to-
+  // east (C, D, E, F), then east wall north-to-south back toward the
+  // door (G, H, I, J). Each entry's position/facing is computed directly
+  // from that workstation's own group position and rotation (chair local
+  // offset (0, 0.42) rotated by the group's own rotation.y) — the exact
+  // same numerical derivation the geometry loops above already use for
+  // the stations themselves, not a separately-eyeballed set of
+  // coordinates that could silently drift from the real furniture. ---
+  const SEAT_WORKSTATIONS: Record<RatRoomSeatId, { position: THREE.Vector3; facingY: number }> = {
+    A: { position: new THREE.Vector3(-ROOM_WIDTH / 2 + 0.26 + 0.42, 0, WEST_START_Z + 1 * WEST_PITCH), facingY: Math.PI / 2 },
+    B: { position: new THREE.Vector3(-ROOM_WIDTH / 2 + 0.26 + 0.42, 0, WEST_START_Z + 0 * WEST_PITCH), facingY: Math.PI / 2 },
+    C: { position: new THREE.Vector3(NORTH_START_X + 0 * NORTH_PITCH, 0, -ROOM_DEPTH / 2 + 0.26 + 0.42), facingY: 0 },
+    D: { position: new THREE.Vector3(NORTH_START_X + 1 * NORTH_PITCH, 0, -ROOM_DEPTH / 2 + 0.26 + 0.42), facingY: 0 },
+    E: { position: new THREE.Vector3(NORTH_START_X + 2 * NORTH_PITCH, 0, -ROOM_DEPTH / 2 + 0.26 + 0.42), facingY: 0 },
+    F: { position: new THREE.Vector3(NORTH_START_X + 3 * NORTH_PITCH, 0, -ROOM_DEPTH / 2 + 0.26 + 0.42), facingY: 0 },
+    G: { position: new THREE.Vector3(ROOM_WIDTH / 2 - 0.26 - 0.42, 0, EAST_START_Z + 0 * EAST_PITCH), facingY: -Math.PI / 2 },
+    H: { position: new THREE.Vector3(ROOM_WIDTH / 2 - 0.26 - 0.42, 0, EAST_START_Z + 1 * EAST_PITCH), facingY: -Math.PI / 2 },
+    I: { position: new THREE.Vector3(ROOM_WIDTH / 2 - 0.26 - 0.42, 0, EAST_START_Z + 2 * EAST_PITCH), facingY: -Math.PI / 2 },
+    J: { position: new THREE.Vector3(ROOM_WIDTH / 2 - 0.26 - 0.42, 0, EAST_START_Z + 3 * EAST_PITCH), facingY: -Math.PI / 2 },
+  };
+
   // --- Printer, NORTH-WEST corner — fixed furniture, no status light,
-  // no queue indicator, no usage animation (ADR 0008, Decision 5). A
-  // body + a lighter paper-tray/output accent on top is enough to read
-  // as "a printer." Positioned against the back-left corner, the one
-  // corner formed by the two walls that are BOTH actually visible (back
-  // + left), same "both adjoining walls visible" placement guitar in
-  // weasel-room.ts's own back-left corner uses. ---
+  // no queue indicator, no usage animation (ADR 0008, Decision 5).
+  // Positioned against the back-left corner, the one corner formed by
+  // the two walls that are BOTH actually visible (back + left), same
+  // "both adjoining walls visible" placement guitar in weasel-room.ts's
+  // own back-left corner uses.
+  //
+  // Grown to a real large office printer/copier's own height — "打印机
+  // 太矮了，现实中的打印机和电脑屏幕一样高，是那种大的打印机": the
+  // original 0.36-tall body read as a small desktop inkjet, not the big
+  // shared copier a wide computer-lab room actually has. Matched to the
+  // workstations' own monitor screen height (screen top at 0.85, screen
+  // bottom at 0.59 — see buildWorkstation()'s own monitorBody) rather
+  // than an arbitrary taller number, so "和电脑屏幕一样高" is a real,
+  // checkable fact about this file's own geometry, not eyeballed.
+  // Horizontal footprint is unchanged (already clear of every
+  // neighboring workstation — confirmed numerically before this change,
+  // same discipline every other furniture placement in this file uses),
+  // only the height and internal proportions grew: a tall main body, a
+  // front control panel, and an output/paper tray partway up, the
+  // silhouette a real large copier actually has instead of a small
+  // single-box desktop printer. ---
+  const PRINTER_HEIGHT = 0.85; // matches the workstation monitor's own screen-top height
   const printerBodyMaterial = new THREE.MeshStandardMaterial({ color: 0xe8e0d0, roughness: 0.45 });
   const printerAccentMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5c47, roughness: 0.6 });
+  const printerPanelMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2414, roughness: 0.5 });
   const printerGroup = new THREE.Group();
   printerGroup.position.set(-ROOM_WIDTH / 2 + 0.45, 0, -ROOM_DEPTH / 2 + 0.4);
-  const printerBody = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.32, 0.42), printerBodyMaterial);
-  printerBody.position.set(0, 0.16, 0);
+  const PRINTER_DEPTH = 0.42;
+  const printerBody = new THREE.Mesh(new THREE.BoxGeometry(0.5, PRINTER_HEIGHT, PRINTER_DEPTH), printerBodyMaterial);
+  printerBody.position.set(0, PRINTER_HEIGHT / 2, 0);
   printerBody.castShadow = true;
   printerGroup.add(printerBody);
-  const printerTray = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.3), printerAccentMaterial);
-  printerTray.position.set(0, 0.34, -0.02);
+  // A dark control panel on the front (south, local +Z) face, upper
+  // area — reads as a real copier's own touchscreen/button panel, not a
+  // blank box. Sits just past the body's own front face, not buried
+  // inside it (the same "a real face, not coplanar/buried" discipline
+  // every other facility's own screens/panels in this app already use).
+  const printerPanel = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.02), printerPanelMaterial);
+  printerPanel.position.set(0.12, PRINTER_HEIGHT - 0.16, PRINTER_DEPTH / 2 + 0.011);
+  printerGroup.add(printerPanel);
+  // Output/paper tray, partway up the front face (a large copier's own
+  // mid-height output shelf, not a desktop printer's top-mounted tray) —
+  // protrudes past the body's own front face only, not the sides or back.
+  const printerTray = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.12), printerAccentMaterial);
+  printerTray.position.set(0, PRINTER_HEIGHT * 0.55, PRINTER_DEPTH / 2 + 0.06);
   printerGroup.add(printerTray);
   group.add(printerGroup);
 
@@ -330,46 +396,18 @@ export function buildRatRoom(): RatRoomHandle {
 
   // --- Figures: rebuilt on every applyState() call, same "cheap enough
   // to rebuild rather than pool" choice every other facility's own room
-  // makes. Placed AT two of the workstations/aisles built above, so the
-  // room reads as "being used for computer work," not as people standing
-  // on open floor — but the two workstations used for this are a FIXED,
-  // hardcoded decorative choice, not derived from which real A-J seat is
-  // actually occupied. There is still no seat->workstation mapping: no
-  // workstation is ever labelled, so nothing here can be read as "this is
-  // seat A" — these slots just happen to reuse two of the ten
-  // already-built, anonymous desks for a figure to sit at (see the file's
-  // own top note). ---
+  // makes. One seated figure per OCCUPIED seat, each at that exact
+  // seat's own real workstation (SEAT_WORKSTATIONS above) — the Design
+  // correction in notes/adr/0008-rat-room-live-state.md ("Design
+  // correction, v3") that reverses the ADR's original "purely
+  // decorative, no seat mapping" stance, after a real-person review
+  // asked for each seat's own state to visibly correspond to its own
+  // workstation. "empty" and "unknown" seats show no figure — just the
+  // bare chair built above — with no visual distinction between them
+  // (rat-room-status-look.ts's own note). ---
   const figuresGroup = new THREE.Group();
   group.add(figuresGroup);
   let activeFigures: RatRoomFigureHandle[] = [];
-
-  // Fixed slots, each one planted at (or just beside) one specific,
-  // already-built workstation — never derived from occupiedCount or any
-  // seat's own state, never varying with which of the ten seats is
-  // actually occupied (see rat-room-status-look.ts's own OCCUPIED_FIGURES
-  // constant). Positions/facing are computed directly from that
-  // workstation's own chair position and the station group's own
-  // rotation (same rotation math verified for the workstations
-  // themselves, above), so a seated figure lines up with its chair
-  // instead of floating on open floor.
-  //
-  // Seat 1: the west wall's first workstation (WEST i=0) — chair world
-  // position (-2.52, 0, -0.75), facing world +X (that station's own
-  // rotation.y = +PI/2, matching its chair's own orientation).
-  // Seat 2: the north wall's second workstation (NORTH i=1) — chair world
-  // position (-0.45, 0, -1.52), facing world +Z (no rotation, same as
-  // that station's own chair).
-  const SEATED_SLOTS: Array<{ position: THREE.Vector3; facingY: number }> = [
-    { position: new THREE.Vector3(-2.52, 0, -0.75), facingY: Math.PI / 2 },
-    { position: new THREE.Vector3(-0.45, 0, -1.52), facingY: 0 },
-  ];
-  // Standing slot: in the aisle just off the east wall's third
-  // workstation (EAST i=2, chair world position (2.52, 0, 0.525)) —
-  // offset 0.5 further into the room (world -X, that station's own
-  // facing direction) so it reads as someone approaching/pausing near
-  // that desk, not sitting in its chair or standing in the open middle
-  // of the room.
-  const STANDING_SLOT = { position: new THREE.Vector3(2.02, 0, 0.525), facingY: -Math.PI / 2 };
 
   function clearFigures(): void {
     for (const figure of activeFigures) figuresGroup.remove(figure.group);
@@ -377,16 +415,14 @@ export function buildRatRoom(): RatRoomHandle {
   }
 
   let currentDesaturate = 0;
-  let seatedCursor = 0;
 
-  function applyState(visual: RatRoomSummary["visual"]): void {
-    const look = lookForRatRoom(visual);
+  function applyState(seatOccupancies: ReadonlyMap<RatRoomSeatId, RatRoomSeatOccupancy>, visual: RatRoomSummary["visual"]): void {
+    const look = lookForRatRoom(seatOccupancies, visual);
 
     clearFigures();
-    seatedCursor = 0;
-    look.figures.forEach((pose, index) => {
-      const slot = pose === "seated" ? SEATED_SLOTS[seatedCursor++ % SEATED_SLOTS.length]! : STANDING_SLOT;
-      const figure = buildRatRoomFigure(`rat-room-figure-${index}-${pose}`, pose, slot.position, slot.facingY);
+    look.occupiedSeats.forEach((seat) => {
+      const slot = SEAT_WORKSTATIONS[seat];
+      const figure = buildRatRoomFigure(`rat-room-figure-${seat}`, slot.position, slot.facingY);
       figure.setDesaturate(currentDesaturate);
       figuresGroup.add(figure.group);
       activeFigures.push(figure);

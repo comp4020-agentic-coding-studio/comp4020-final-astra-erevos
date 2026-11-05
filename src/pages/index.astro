@@ -1845,24 +1845,33 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
             </section>
           </div>
 
-          {/* Rat Room's left pane — a real 3D diorama, Stage 1 (static
-              shell only): perimeter computer workstations (desk +
-              monitor + chair), a printer in the north-west corner, and a
-              door threshold in the south-west corner — see
-              src/lib/hall-view/rat-room.ts for the full wall-visibility
-              reasoning and its own note on why the ~10 decorative
-              workstations drawn here are NOT a rendering of the product's
-              A-J seat slots. Same cutaway low-poly language as every
-              other facility's, mounted onto the ONE shared renderer
-              (src/lib/hall-view/renderer-host.ts), never a second
-              WebGLRenderer. aria-hidden for the same reason every other
-              facility's hall-view is: every fact it shows is already
-              stated as accessible text in the Rat Room panel below.
-              Hidden by default; the facility-tab script shows it only
-              when Rat Room is selected. See
-              notes/adr/0008-rat-room-live-state.md. */}
+          {/* Rat Room's left pane — a real 3D diorama: perimeter computer
+              workstations (desk + monitor + chair), a printer in the
+              north-west corner, and a door threshold in the south-west
+              corner — see src/lib/hall-view/rat-room.ts for the full
+              wall-visibility reasoning. Each of the ten workstations now
+              DOES correspond to one real A-J seat (Design correction, v3
+              — notes/adr/0008-rat-room-live-state.md): data-rat-room-seats
+              carries this page load's own seat->occupancy map so the
+              mount script can show a seated figure at exactly the
+              occupied seats' own workstations from the very first
+              render, not only after the first SSE update. Same cutaway
+              low-poly language as every other facility's, mounted onto
+              the ONE shared renderer (src/lib/hall-view/renderer-host.ts),
+              never a second WebGLRenderer. aria-hidden for the same
+              reason every other facility's hall-view is: every fact it
+              shows is already stated as accessible text in the Rat Room
+              panel below. Hidden by default; the facility-tab script
+              shows it only when Rat Room is selected. */}
           <div class="facility-view" data-facility="rat-room" hidden>
-            <section class="hall-view" aria-hidden="true" data-rat-room-visual={ratRoomSummary.visual}>
+            <section
+              class="hall-view"
+              aria-hidden="true"
+              data-rat-room-visual={ratRoomSummary.visual}
+              data-rat-room-seats={JSON.stringify(
+                Object.fromEntries(ratRoomSeats.map((seat) => [seat.seat, seat.occupancy])),
+              )}
+            >
               <div class="hall-view-canvas" id="rat-room-canvas"></div>
               <p class="hall-view-caption">Toad Hall — Rat Room, live</p>
             </section>
@@ -2911,24 +2920,23 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
     </script>
 
     {/* Rat Room's own 3D mount, same lazy-build-on-first-select shape as
-        every other facility's mount script — but mountRatRoom() takes
-        the already-DERIVED room `visual`
-        ("empty" | "occupied" | "unknown", data-rat-room-visual from this
-        page load's own summarizeRatRoomSeats() read), never any
-        individual seat's own state (ADR 0008, Decision 4). See
-        notes/adr/0008-rat-room-live-state.md and
-        src/lib/hall-view/rat-room.ts. */}
+        every other facility's mount script — mountRatRoom() now takes
+        BOTH each seat's own occupancy (data-rat-room-seats) AND the
+        already-derived room `visual` (data-rat-room-visual), per the
+        Design correction in notes/adr/0008-rat-room-live-state.md
+        ("Design correction, v3"). See src/lib/hall-view/rat-room.ts. */}
     <script>
       import { mountRatRoom } from "../lib/hall-view/scene.ts";
       import { activateFacility } from "../lib/hall-view/renderer-host.ts";
       import { onFacilitySelected } from "../lib/hall-view/facility-switch.ts";
 
       type RatRoomVisual = "empty" | "occupied" | "unknown";
+      type RatRoomSeatOccupancy = "empty" | "occupied" | "unknown";
 
       const ratRoomContainer = document.getElementById("rat-room-canvas");
       const ratRoomSection = ratRoomContainer?.closest<HTMLElement>(".hall-view") ?? null;
 
-      if (ratRoomContainer && ratRoomSection && ratRoomSection.dataset.ratRoomVisual) {
+      if (ratRoomContainer && ratRoomSection && ratRoomSection.dataset.ratRoomVisual && ratRoomSection.dataset.ratRoomSeats) {
         let built = false;
         onFacilitySelected("rat-room", () => {
           if (built) {
@@ -2938,7 +2946,9 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
           built = true;
           try {
             const initialVisual = ratRoomSection.dataset.ratRoomVisual as RatRoomVisual;
-            mountRatRoom(ratRoomContainer, initialVisual);
+            const initialSeatsRaw = JSON.parse(ratRoomSection.dataset.ratRoomSeats!) as Record<string, RatRoomSeatOccupancy>;
+            const initialSeats = new Map(Object.entries(initialSeatsRaw));
+            mountRatRoom(ratRoomContainer, initialSeats, initialVisual);
           } catch {
             // Same fallback as every other facility's own mount — WebGL
             // unavailable, or anything else went wrong building the
@@ -4444,7 +4454,11 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
       // changing seat F's own DOM. After updating the one seat, the
       // room-level summary is recomputed from ALL ten currently-cached
       // seats, never read from or written to a second, separately-stored
-      // value (ADR 0008, Decision 4).
+      // value (ADR 0008, Decision 4). The 3D scene now also receives
+      // each seat's own occupancy directly (Design correction, v3 — see
+      // notes/adr/0008-rat-room-live-state.md), alongside the unchanged
+      // derived `visual`, so a report/decay on one seat updates exactly
+      // that seat's own figure in the 3D scene, never any other seat's.
       function applyRatRoomSeatUpdate(seat: RatRoomSeatState): void {
         seatCache.set(seat.seat, seat);
         if (summaryEl) renderSummary(summaryEl, seatCache);
@@ -4455,7 +4469,9 @@ function remainingLabel(machine: Machine): { text: string; known: boolean } {
         // cache, so calling it before that point just no-ops safely
         // against a partial cache the same way every other derived value
         // here would.
-        applyRatRoomStateToScene(ratRoomVisualFor(seatCache));
+        const seatOccupancies = new Map<string, RatRoomSeatOccupancy>();
+        for (const [seatLetter, cached] of seatCache) seatOccupancies.set(seatLetter, cached.occupancy);
+        applyRatRoomStateToScene(seatOccupancies, ratRoomVisualFor(seatCache));
 
         const els = seatElements.get(seat.seat);
         if (!els) return;

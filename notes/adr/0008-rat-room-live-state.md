@@ -1,6 +1,7 @@
 # ADR 0008: Rat Room's shared live state
 
-**Status**: Implemented and verified live. This ADR fixed the state
+**Status**: Implemented and verified live, with three design corrections
+(see "Design correction, v2" through "v4" below). This ADR fixed the state
 model, statuses, and decay rules for Toad Live's seventh facility before
 any schema, API, or UI work began, the same order ADR
 0001/0002/0003/0004/0005/0006/0007 each used (see `PROCESS.md`'s
@@ -9,7 +10,11 @@ Backend, practical panel, and 3D scene shipped as three separate
 commits, verified locally against this ADR's own decisions, then shipped
 to Fly and verified live — see the Verification section below for what
 was actually run, and `PROCESS.md`'s own Rat Room entry for what the
-milestone taught beyond this document's frozen decisions.
+milestone taught beyond this document's frozen decisions. **v2 fixes a
+chair-clipping rendering bug; v3 is a deliberate, requested reversal of
+part of Decision 4 and part of Decision 5 below — read v3 before trusting
+either decision's own "no seat-to-figure mapping" language at face
+value.**
 
 **Rat Room is Toad Live's seventh facility, and its conclusion looks
 structurally different from every room ADR since AA Room (0003–0007) —
@@ -24,6 +29,45 @@ by re-deriving from Rat Room's own facts, not by assuming the
 single-room occupancy pattern Otter/Rabbit/Weasel/Badger Room share
 automatically extends here: Rat Room's difference comes from resource
 granularity, not from its position in the facility count.
+
+## Design correction, v4 — the printer's own height
+
+- **The printer read as a small desktop inkjet, not the large shared
+  copier a wide computer-lab room actually has** — "打印机太矮了，现实中
+  的打印机和电脑屏幕一样高，是那种大的打印机": the original 0.36-tall
+  body was barely taller than the workstation chairs beside it. Grown to
+  `PRINTER_HEIGHT = 0.85`, matched to the workstations' own monitor
+  screen-top height (`buildWorkstation()`'s own `monitorBody`, centered
+  at y=0.72 with height 0.26 → screen top at 0.85) — a real, checkable
+  fact about this file's own geometry, not an eyeballed taller number.
+  Horizontal footprint is unchanged (already numerically confirmed clear
+  of every neighboring workstation before this change). Added a dark
+  front control panel and a mid-height output tray — the silhouette a
+  real large office copier actually has, not a single featureless tall
+  box — each built just past the body's own front face, not buried
+  inside it (the same "a real face, not coplanar/buried" discipline
+  every other facility's own screens/panels in this app already follows).
+  Purely visual: no change to Decision 5's "no printer availability or
+  queue" rule, no new status, no new animation.
+
+## Design correction, v3 — each seat now visibly maps to its own real workstation in the 3D scene
+
+**This correction deliberately REVERSES part of Decision 4 and part of Decision 5 below — not an oversight, a considered real-person request, recorded here exactly like every prior ADR's own "Design correction" sections rather than silently overwritten.** The original decisions were:
+
+- Decision 4: "The 3D scene needs only this one three-valued derived signal — there is no 3D requirement... to show which specific seats A–J are occupied. Figures are decorative... and their count never attempts to equal the number of actually-occupied seats."
+- Decision 5: "No exact A–J-to-figure mapping in the 3D scene... this ADR does not ask for — and a later stage must not invent — any claim that figure N corresponds to seat N."
+
+**A real-person review of the live 3D scene asked for the opposite: each of the ten seats' own occupancy should visibly correspond to its own specific workstation, so a resident can tell at a glance from the 3D scene alone which seats are free, the same way the panel's own ten cards already do — "我现在想要精修一下rat room，想让每个座位状态和3D小人是否存在对应."** This is accepted as a genuine scope change, not a bug fix: the original restraint (figures are decorative, never implying real seat-level information) was a deliberate choice given the facts available at the time, and this correction is an equally deliberate choice to spend more visual fidelity here now that it's been explicitly asked for.
+
+**What changed:**
+
+- **`SEAT_WORKSTATIONS`** (`rat-room.ts`), a new fixed map from each of the ten real seat letters (A–J) to one specific, already-built workstation's own position and facing — the single source of truth for which workstation represents which seat. Ordered clockwise starting at the door (the room's own real south-west corner, per the file's own compass-mapping note): west wall south-to-north (A, nearest the door; B, nearest the printer), north wall west-to-east (C, D, E, F), east wall north-to-south back toward the door (G, H, I, J). Confirmed against the room's own real layout (printer between B and C, door between A and J) via an explicit back-and-forth with the person requesting this change, including one correction after an initial diagram misplaced the printer.
+- **`lookForRatRoom()`** (`rat-room-status-look.ts`) now takes each seat's own current occupancy (a `ReadonlyMap<RatRoomSeatId, RatRoomSeatOccupancy>`) in addition to the already-derived `visual`, and returns exactly the list of currently-occupied seat letters (`occupiedSeats`) rather than a fixed-count `figures` array. `visual` keeps its EXACT prior role — desaturate/dim only, never figures — so the room-level "only `unknown` dims the whole room, `empty` stays fully lit" rule from before this correction is UNCHANGED (confirmed directly with the person requesting this change, who considered and rejected dimming on `empty` too, specifically to keep this rule consistent with every other room in the app).
+- **`applyState()`** (`rat-room.ts`) now places exactly one seated figure per occupied seat, at that seat's own `SEAT_WORKSTATIONS` entry — never a fixed decorative count. An `empty` or `unknown` seat shows its bare chair with no figure and no visual distinction between the two (confirmed directly: the person requesting this change explicitly didn't want `unknown` seats to look different from `empty` ones in the 3D scene, to keep the change minimal).
+- **`buildRatRoomFigure()`** (`rat-room-figures.ts`) dropped its `pose` parameter — every figure is now seated (there is no more "standing" filler figure, since a seat is either occupied, with one figure at its own chair, or not).
+- **`scene.ts`/`index.astro`** now thread each seat's own occupancy (not just `visual`) from the server-rendered initial state, through the client-side SSE seat cache, into `applyRatRoomStateToScene()` — the data flow Decision 4 originally closed off is now open, but still only for Rat Room's own 3D scene; no other facility's own data flow changed.
+
+**What did NOT change:** the stored data model (Decision 1–3, Decision 6), the panel's own summary/per-seat cards, the API contract, decay, or concurrency — this is a 3D-presentation-only correction, the same "touches no stored state" scope every prior purely-visual Design correction in this codebase keeps.
 
 ## Design correction, v2 — seated figure clipping through its own chair
 
@@ -301,11 +345,15 @@ This is a pure function of the ten seats' own `occupancy` values alone —
 `expectedEndAt`/`confirmedAt`/`version` play no role in it, the same way
 a resident's `expectedEndAt` estimate never changes any prior room's 3D
 state beyond plain `occupied` (ADR 0004/0005/0006/0007, each Decision 2).
-**The 3D scene needs only this one three-valued derived signal** — there
-is no 3D requirement, and this ADR creates none, to show which specific
-seats A–J are occupied. Figures are decorative, exactly like every prior
-room's own occupied-state figures, and their count never attempts to
-equal the number of actually-occupied seats.
+**The panel's summary and the room-level dim/desaturate still need only
+this one three-valued derived signal** — `visual` plays no other role
+than that. **The following two sentences are SUPERSEDED by "Design
+correction, v3" above: "The 3D scene needs only this one three-valued
+derived signal... Figures are decorative... and their count never
+attempts to equal the number of actually-occupied seats" — see that
+correction for what changed and why.** The derivation rule itself
+(precedence order above) and `visual`'s own role in dim/desaturate are
+otherwise unchanged by that correction.
 
 **The panel's summary line must never let `unknown` pass as `empty`.**
 The one number a resident actually wants — "how many seats can I use
@@ -351,16 +399,19 @@ rejecting, not merely an omission:
   resource-occupancy fact — how many of the ten reportable seats are
   presently unavailable — not a count of people, and must not be read or
   presented as one: a seat being `occupied` says nothing about whether
-  exactly one person is using it, and the 3D scene's own decorative
-  figure count (Decision 4) never attempts to equal, track, or stand in
-  for the occupied-seat count either.
-- **No exact A–J-to-figure mapping in the 3D scene.** Decision 4 already
-  establishes the scene needs only the one derived three-valued signal;
-  a future 3D stage choosing to show, say, two or three decorative
-  figures for "occupied" is free to do so the same restrained,
-  non-activity-specific way every prior room's figures already work, but
-  this ADR does not ask for — and a later stage must not invent — any
-  claim that figure N corresponds to seat N.
+  exactly one person is using it. **Narrower after "Design correction,
+  v3" above than originally stated here**: the 3D scene's figure count
+  now DOES equal the occupied-seat count (one seated figure per occupied
+  seat) — that correction is about SEAT occupancy, still never a claim
+  about how many actual people are in the room.
+- **No exact A–J-to-figure mapping in the 3D scene — SUPERSEDED by
+  "Design correction, v3" above.** This bullet originally forbade any
+  claim that figure N corresponds to seat N; v3 deliberately reverses
+  that, after a real-person request asked for exactly this mapping. Kept
+  here, struck through in spirit rather than deleted, so a future reader
+  sees the original reasoning and why it no longer holds — the same
+  "leave wrong/superseded reasoning visible" convention this file's own
+  "Design correction" sections already follow.
 
 ## Decision 6 — inherited house-wide rules, mostly from Laundry's own shape, not the single-row rooms'
 
