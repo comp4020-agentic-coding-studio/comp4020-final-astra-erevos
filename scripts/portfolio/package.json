@@ -1,0 +1,11 @@
+{
+  "name": "toad-live-demo-capture",
+  "private": true,
+  "type": "module",
+  "description": "Standalone tooling (not part of the app's own dependency graph) that captures a reproducible recruiter-facing demo of Toad Live against a local build with a throwaway database.",
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
+    "playwright": "^1.56.0"
+  }
+}

@@ -5,7 +5,9 @@
 **Live demo:** https://comp4020-final-astra-erevos.fly.dev
 **Repository:** https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos
 
-![Toad Live — Laundry overview, five locations reported live by residents](docs/portfolio/screenshots/01-overview.png)
+![Demo: two independent browser sessions on AA Room updating live over SSE with no reload, then Rat Room's seat-to-workstation mapping updating as seats are reported occupied](docs/portfolio/demo/toad-live-demo.gif)
+
+30–40s full demo: [MP4](docs/portfolio/demo/toad-live-demo.mp4) · [WebM](docs/portfolio/demo/toad-live-demo.webm) (adds a stale-write `409` rejection scene) — captured by a reproducible script, not hand-recorded; see [`docs/portfolio/demo/README.md`](docs/portfolio/demo/README.md).
 
 ## The problem
 
@@ -32,7 +34,7 @@ Full request/write/broadcast flow: [`docs/portfolio/architecture.md`](docs/portf
 
 **A CI flake that turned out to be a real architectural bug.** A docs-only commit failed CI seven times running, always `database is locked`. The cause: a test importing a room module for its pure decay logic was transitively opening a second live SQLite connection, racing the app's own for the same file lock. The fix was an architectural split — logic modules take an injected `store`/`now` and never touch the database layer directly. Zero lock errors since, across 15 repeated full test runs. ([`91167bd`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/91167bd2a833c4cbe9d9399e45d8299ea537d16e))
 
-**Catching a silent-overwrite hole before writing any code.** Optimistic concurrency was first designed to cover only resident reports. A design-time review caught that the server's own background decay is *also* a canonical mutation — a stale client report resurrecting an already-invalidated state would have been the exact silent-overwrite bug the versioning existed to prevent, one layer further down.
+**Catching a silent-overwrite hole before writing any code.** Optimistic concurrency was first designed to cover only resident reports. A design-time review caught that the server's own lazy decay transition is *also* a canonical mutation — a stale client report resurrecting an already-invalidated state would have been the exact silent-overwrite bug the versioning existed to prevent, one layer further down.
 
 **A production incident that became a durable rule.** A malformed client timestamp, written unvalidated, made `node:sqlite` throw on every subsequent read of that row — one bad write 500'd it permanently, not just once. Fixed at the API boundary with a regression test, a live data repair, and a standing rule for any future client-supplied number. ([`3c0b63f`](https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/3c0b63f0a73d01dae71d7fa1f9e6fe4d31057a32))
 
