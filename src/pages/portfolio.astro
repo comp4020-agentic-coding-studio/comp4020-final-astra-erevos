@@ -15,28 +15,42 @@ export const prerender = true;
 // "/comp4020-final-astra-erevos/" on Pages (stripped to the bare path).
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const site = Astro.site?.origin ?? "https://comp4020-final-astra-erevos.fly.dev";
-const ogImage = `${site}${BASE}/portfolio/demo/poster.png`;
 const canonicalUrl = `${site}${BASE}/portfolio/`;
+const title = "Toad Live — Software Engineering Case Study";
+const description =
+  "A real-time, multi-user status board for shared residential spaces — built around human reports, optimistic concurrency, and SSE push instead of sensors. Engineering case study: architecture, concurrency, and testing.";
+// Purpose-built 1200x630 share card (docs/portfolio/social-preview.png), not
+// the demo-video poster — social platforms only ever fetch this from the
+// raw HTML response, so it never costs a normal page visitor anything.
+const ogImage = `${site}${BASE}/portfolio/social-preview.png`;
+const ogImageAlt =
+  "Toad Live — real-time shared-space status, built with Astro, SQLite, SSE, and Three.js";
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Toad Live — Software Engineering Case Study</title>
-    <meta
-      name="description"
-      content="A real-time, multi-user status board for shared residential spaces — built around human reports, optimistic concurrency, and SSE push instead of sensors. Engineering case study: architecture, concurrency, and testing."
-    />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content="Toad Live — Software Engineering Case Study" />
-    <meta
-      property="og:description"
-      content="A real-time, multi-user status board for shared residential spaces — built around human reports, optimistic concurrency, and SSE push instead of sensors."
-    />
-    <meta property="og:image" content={ogImage} />
-    <meta name="twitter:card" content="summary_large_image" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
     <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" type="image/svg+xml" href={`${BASE}/portfolio/favicon.svg`} />
+    <link rel="icon" type="image/x-icon" href={`${BASE}/portfolio/favicon.ico`} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={ogImageAlt} />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={ogImageAlt} />
     <style>
       :root {
         color-scheme: light;

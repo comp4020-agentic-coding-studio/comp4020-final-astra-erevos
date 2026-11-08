@@ -68,7 +68,11 @@ jobs:
           test -f pages-out/portfolio/demo/toad-live-demo.mp4
           test -f pages-out/portfolio/demo/toad-live-demo.webm
           test -f pages-out/portfolio/demo/toad-live-demo.gif
+          test -f pages-out/portfolio/social-preview.png
+          test -f pages-out/portfolio/favicon.svg
+          test -f pages-out/portfolio/favicon.ico
           grep -q 'comp4020-final-astra-erevos.fly.dev' pages-out/portfolio/index.html
+          grep -q 'og:image:width' pages-out/portfolio/index.html
           echo "Artifact looks complete; live-demo CTA points at the submitted Fly app."
 
       - uses: actions/configure-pages@v5

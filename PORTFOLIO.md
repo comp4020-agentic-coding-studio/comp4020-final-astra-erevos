@@ -2,8 +2,11 @@
 
 **A real-time, multi-user status board for a shared residential building — seven facilities' worth of live state (ten laundry machines, study rooms, a music room, a computer lab's ten individual seats) kept accurate by whoever last reported, not by sensors.**
 
+**[Read the case study →](https://comp4020-agentic-coding-studio.github.io/comp4020-final-astra-erevos/portfolio/)** a polished, standalone write-up of everything below, plus a reproducible demo video.
+
 **Live demo:** https://comp4020-final-astra-erevos.fly.dev
 **Repository:** https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos
+**Architecture:** [`docs/portfolio/architecture.md`](docs/portfolio/architecture.md) · **Case studies:** [`docs/portfolio/case-studies.md`](docs/portfolio/case-studies.md) · **Demo:** [`docs/portfolio/demo/README.md`](docs/portfolio/demo/README.md)
 
 ![Demo: two independent browser sessions on AA Room updating live over SSE with no reload, then Rat Room's seat-to-workstation mapping updating as seats are reported occupied](docs/portfolio/demo/toad-live-demo.gif)
 
