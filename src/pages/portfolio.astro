@@ -1,0 +1,744 @@
+---
+// Portfolio-only, recruiter-facing case-study page. Deliberately isolated:
+// a full standalone HTML document (same pattern as src/pages/readme/index.astro)
+// that imports nothing from index.astro or src/lib/*, so it can never affect
+// app behaviour, session/cookie logic, or the production bundle. It reads no
+// request state and queries no database — every fact on this page is static
+// prose plus prebuilt assets copied into public/portfolio/.
+const ogImage = "/portfolio/demo/poster.png";
+const canonicalUrl = "https://comp4020-final-astra-erevos.fly.dev/portfolio/";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toad Live — Software Engineering Case Study</title>
+    <meta
+      name="description"
+      content="A real-time, multi-user status board for shared residential spaces — built around human reports, optimistic concurrency, and SSE push instead of sensors. Engineering case study: architecture, concurrency, and testing."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Toad Live — Software Engineering Case Study" />
+    <meta
+      property="og:description"
+      content="A real-time, multi-user status board for shared residential spaces — built around human reports, optimistic concurrency, and SSE push instead of sensors."
+    />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href={canonicalUrl} />
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #f6efe1;
+        --surface: #fffbf1;
+        --surface-alt: #fdf6e6;
+        --ink: #2c2115;
+        --ink-secondary: #6b5c47;
+        --ink-muted: #76674f;
+        --border: rgba(44, 33, 21, 0.14);
+        --accent: #3f6b3f;
+        --accent-strong: #2f5233;
+        --warm: #c1652f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --page: #1c150f;
+          --surface: #2a2015;
+          --surface-alt: #241b12;
+          --ink: #f6ecd9;
+          --ink-secondary: #d3c2a3;
+          --ink-muted: #9c8d76;
+          --border: rgba(246, 236, 217, 0.16);
+          --accent: #86b986;
+          --accent-strong: #a6d1a6;
+          --warm: #e08a4f;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      html { scroll-behavior: smooth; }
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+      }
+
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+
+      main {
+        max-width: 72rem;
+        margin: 0 auto;
+        padding: 0 1.25rem;
+      }
+
+      img, video { max-width: 100%; height: auto; display: block; }
+
+      a {
+        color: var(--accent);
+        text-decoration-color: var(--border);
+      }
+      a:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      section {
+        padding: 2.5rem 0;
+        border-top: 1px solid var(--border);
+      }
+      section:first-of-type { border-top: none; }
+
+      h2 {
+        font-size: clamp(1.4rem, 2.6vw, 1.8rem);
+        color: var(--accent-strong);
+        margin: 0 0 0.75rem;
+      }
+      h3 {
+        font-size: 1.05rem;
+        color: var(--accent-strong);
+        margin: 0 0 0.4rem;
+      }
+      p { margin: 0 0 1rem; max-width: 42rem; }
+      .measure-wide p { max-width: 54rem; }
+
+      .eyebrow {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-muted);
+        margin: 0 0 0.5rem;
+      }
+
+      /* ---------- Hero ---------- */
+      .hero {
+        padding: 3rem 0 2.5rem;
+        text-align: center;
+      }
+      .hero h1 {
+        font-size: clamp(2.2rem, 6vw, 3.2rem);
+        margin: 0 0 0.6rem;
+        color: var(--accent-strong);
+        letter-spacing: -0.01em;
+      }
+      .hero .pitch {
+        font-size: clamp(1.05rem, 2.4vw, 1.3rem);
+        color: var(--ink-secondary);
+        max-width: 38rem;
+        margin: 0 auto 1rem;
+      }
+      .hero .stack-line {
+        font-size: 0.92rem;
+        color: var(--ink-muted);
+        max-width: 40rem;
+        margin: 0 auto 1.75rem;
+      }
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: center;
+        margin-bottom: 1.25rem;
+      }
+      .btn {
+        font: inherit;
+        font-weight: 700;
+        font-size: 0.95rem;
+        padding: 0.7rem 1.4rem;
+        border-radius: 999px;
+        border: 1px solid var(--accent);
+        text-decoration: none;
+        display: inline-block;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: var(--surface);
+      }
+      .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+      .btn-secondary {
+        background: transparent;
+        color: var(--accent-strong);
+      }
+      .btn-secondary:hover { background: var(--surface-alt); }
+      .deeper-link {
+        font-size: 0.88rem;
+        color: var(--ink-secondary);
+      }
+
+      .hero-media {
+        margin: 1.75rem auto 0;
+        max-width: 48rem;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        box-shadow: 0 4px 24px rgba(44, 33, 21, 0.1);
+      }
+      .hero-media img { width: 100%; }
+
+      /* ---------- Evidence strip ---------- */
+      .evidence-strip {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.6rem 0.9rem;
+        padding: 0.25rem 0 2rem;
+        border-top: none;
+      }
+      .evidence-chip {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--accent-strong);
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.35rem 0.85rem;
+        white-space: nowrap;
+      }
+
+      /* ---------- Gallery ---------- */
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1.25rem;
+        margin-top: 1.25rem;
+      }
+      figure.shot {
+        margin: 0;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      figure.shot img { width: 100%; }
+      figure.shot figcaption {
+        padding: 0.85rem 1rem 1rem;
+        font-size: 0.86rem;
+        color: var(--ink-secondary);
+      }
+      figure.shot figcaption strong { color: var(--ink); }
+
+      /* ---------- Architecture ---------- */
+      .arch-svg-wrap {
+        max-width: 38rem;
+        margin: 1.5rem auto;
+        /* The diagram's own text/fills are authored for a light canvas and
+           aren't theme-aware, so this wrapper stays light in both modes
+           rather than going dark and losing contrast against it. */
+        background: #fffbf1;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 1rem;
+      }
+      .arch-svg-wrap img { width: 100%; height: auto; }
+      .arch-svg-link {
+        text-align: center;
+        font-size: 0.85rem;
+        margin: -0.75rem 0 1.5rem;
+      }
+
+      .arch-blocks {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+        margin-top: 1.5rem;
+      }
+      .arch-block {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.1rem;
+      }
+      .arch-block h3 { font-size: 0.95rem; }
+      .arch-block p { font-size: 0.88rem; margin: 0; max-width: none; }
+
+      /* ---------- Realtime proof ---------- */
+      .proof-flow {
+        font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+        font-size: 0.85rem;
+        color: var(--accent-strong);
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+        display: inline-block;
+        margin: 0.5rem 0 1.25rem;
+        max-width: 100%;
+        overflow-x: auto;
+        white-space: pre;
+      }
+      .proof-media {
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        box-shadow: 0 4px 20px rgba(44, 33, 21, 0.08);
+      }
+
+      /* ---------- Case studies ---------- */
+      .cases {
+        display: grid;
+        gap: 1.25rem;
+        margin-top: 1.25rem;
+      }
+      .case-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 1.25rem 1.4rem;
+      }
+      .case-card h3 {
+        font-size: 1.05rem;
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+      }
+      .case-card .case-label {
+        white-space: nowrap;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--warm);
+      }
+      .case-card ul {
+        margin: 0.5rem 0 0.75rem;
+        padding-left: 1.2rem;
+        font-size: 0.9rem;
+        color: var(--ink-secondary);
+      }
+      .case-card li { margin-bottom: 0.3rem; }
+      .case-card .case-link { font-size: 0.85rem; }
+
+      /* ---------- Evidence/testing ---------- */
+      .metric-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin: 1.25rem 0 1.5rem;
+      }
+      .metric {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.3rem;
+        text-align: center;
+        min-width: 7.5rem;
+      }
+      .metric .num {
+        display: block;
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: var(--accent-strong);
+      }
+      .metric .label {
+        font-size: 0.78rem;
+        color: var(--ink-muted);
+      }
+      .evidence-list {
+        margin: 0;
+        padding-left: 1.2rem;
+        font-size: 0.92rem;
+        color: var(--ink-secondary);
+      }
+      .evidence-list li { margin-bottom: 0.4rem; }
+
+      /* ---------- Process ---------- */
+      .process-steps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        margin: 1.25rem 0 1rem;
+        font-size: 0.88rem;
+      }
+      .process-step {
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        color: var(--ink-secondary);
+      }
+      .process-step strong { color: var(--ink); }
+
+      /* ---------- Demo reproducibility ---------- */
+      .demo-video {
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        margin: 1.25rem 0;
+        max-width: 42rem;
+      }
+      .demo-links {
+        font-size: 0.9rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1rem;
+      }
+
+      /* ---------- Footer ---------- */
+      footer {
+        padding: 2.5rem 0 3rem;
+        border-top: 1px solid var(--border);
+        text-align: center;
+      }
+      footer .cta-row { margin-bottom: 1rem; }
+      footer .provenance {
+        font-size: 0.85rem;
+        color: var(--ink-muted);
+        max-width: 34rem;
+        margin: 1rem auto 0;
+      }
+
+      /* ---------- Responsive ---------- */
+      @media (max-width: 600px) {
+        main { padding: 0 1rem; }
+        section { padding: 1.75rem 0; }
+        .hero { padding: 2rem 0 1.5rem; }
+        .cta-row { flex-direction: column; align-items: stretch; }
+        .btn { text-align: center; }
+        .metric-row { justify-content: center; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!-- 1. Hero -->
+      <header class="hero">
+        <h1>Toad Live</h1>
+        <p class="pitch">
+          A real-time, multi-user status board for shared residential spaces — built around human
+          reports rather than sensors.
+        </p>
+        <p class="stack-line">
+          Astro + Node · SQLite · Server-Sent Events · Three.js · 264 automated tests · deployed on Fly.io
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://comp4020-final-astra-erevos.fly.dev">Open live demo</a>
+          <a
+            class="btn btn-secondary"
+            href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos"
+            >View source</a
+          >
+        </div>
+        <p class="deeper-link">
+          Want the deeper technical write-up? Jump to <a href="#case-studies">engineering case studies</a>.
+        </p>
+        <div class="hero-media">
+          <img
+            src="/portfolio/demo/toad-live-demo.gif"
+            alt="Demo: two independent browser sessions on AA Room updating live over SSE with no reload, then Rat Room's seat-to-workstation mapping updating as seats are reported occupied"
+            width="900"
+            height="563"
+          />
+        </div>
+      </header>
+
+      <!-- evidence strip, directly under hero -->
+      <div class="evidence-strip" aria-label="Key verified facts">
+        <span class="evidence-chip">7 facilities</span>
+        <span class="evidence-chip">264 tests</span>
+        <span class="evidence-chip">real-time SSE</span>
+        <span class="evidence-chip">persistent SQLite</span>
+      </div>
+
+      <!-- 2. The problem -->
+      <section id="problem" class="measure-wide" aria-labelledby="problem-heading">
+        <p class="eyebrow">The problem</p>
+        <h2 id="problem-heading">Knowing a room is free shouldn't require walking there</h2>
+        <p>
+          In a shared residential building, "is the washer free?" or "is the study room in use?" is
+          usually answered by physically walking over and looking. Toad Live replaces that walk with a
+          live, resident-reported status board: pick a facility, see its current state, and report a
+          change in a few seconds — no account, no sensor hardware.
+        </p>
+        <p>
+          The hard engineering problem here isn't the CRUD surface. It's making human-reported,
+          inherently stale information behave honestly when it can go stale and when several people
+          write to the same resource at once.
+        </p>
+      </section>
+
+      <!-- 3. Product snapshot / gallery -->
+      <section id="gallery" aria-labelledby="gallery-heading">
+        <p class="eyebrow">Product snapshot</p>
+        <h2 id="gallery-heading">Seven facilities, one shared live-state model</h2>
+        <div class="gallery">
+          <figure class="shot">
+            <img
+              src="/portfolio/screenshots/02-aa-room.png"
+              alt="AA Room showing Occupied status with both Watching TV and Playing pool active at once"
+              loading="lazy"
+              width="1600"
+              height="1000"
+            />
+            <figcaption>
+              <strong>AA Room</strong> — multiple simultaneous activities represented in one live shared
+              state: watching TV and playing pool can both be true together, not an exclusive toggle.
+            </figcaption>
+          </figure>
+          <figure class="shot">
+            <img
+              src="/portfolio/screenshots/03-weasel-room.png"
+              alt="Weasel Room, the music room, showing Occupied status with remaining time unknown"
+              loading="lazy"
+              width="1600"
+              height="1000"
+            />
+            <figcaption>
+              <strong>Weasel Room</strong> — a simple occupancy model paired with a richer spatial 3D
+              representation (guitar, piano, seated figures) than the state itself requires.
+            </figcaption>
+          </figure>
+          <figure class="shot">
+            <img
+              src="/portfolio/screenshots/06-rat-room-mapping.png"
+              alt="Rat Room computer lab with two of ten seats occupied, each showing a seated figure at its own distinct workstation"
+              loading="lazy"
+              width="1600"
+              height="1000"
+            />
+            <figcaption>
+              <strong>Rat Room</strong> — ten independently-reportable seat resources map directly onto
+              ten fixed 3D workstations; an occupied seat shows a figure at exactly its own chair.
+            </figcaption>
+          </figure>
+          <figure class="shot">
+            <img
+              src="/portfolio/screenshots/01-overview.png"
+              alt="Laundry overview showing five locations with live available/in-use/out-of-order/unknown counts"
+              loading="lazy"
+              width="1600"
+              height="1000"
+            />
+            <figcaption>
+              <strong>Laundry</strong> — the original facility: ten machines across five locations, each
+              with its own independently-reportable status and remaining time.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- 4. How it works -->
+      <section id="architecture" aria-labelledby="architecture-heading">
+        <p class="eyebrow">How it works</p>
+        <h2 id="architecture-heading">Read fast, write safely, push live</h2>
+        <p>
+          The server reads state straight from SQLite for the first paint, then pushes every other
+          session's reports live over SSE. A resident's own report goes out as a <code>PATCH</code>
+          {" "}carrying the resource's <code>version</code>; if someone else wrote to it first, the server
+          rejects with <code>409</code> and the current canonical state rather than silently overwriting
+          anyone. Status is never trusted forever — an ordinary report lazily decays to "unknown" the
+          next time anyone reads it, never on a timer.
+        </p>
+        <div class="arch-svg-wrap">
+          <a href="/portfolio/architecture.svg" target="_blank" rel="noopener">
+            <img
+              src="/portfolio/architecture.svg"
+              alt="System overview: browser sessions, Astro routes, session identity, optimistic-concurrency check, SQLite, SSE broadcast back to every session"
+              width="1024"
+              height="1323"
+              loading="lazy"
+            />
+          </a>
+        </div>
+        <p class="arch-svg-link">
+          <a href="/portfolio/architecture.svg" target="_blank" rel="noopener">Open full-size architecture diagram ↗</a>
+        </p>
+        <div class="arch-blocks">
+          <div class="arch-block">
+            <h3>Astro / Node server</h3>
+            <p>Server-rendered pages and API routes in one Node process, no separate backend service.</p>
+          </div>
+          <div class="arch-block">
+            <h3>SQLite persistent volume</h3>
+            <p><code>node:sqlite</code> on a Fly.io volume — all state survives a restart, no separate database server.</p>
+          </div>
+          <div class="arch-block">
+            <h3>Pseudonymous sessions</h3>
+            <p>Server-issued, high-entropy credential; the server resolves the actor, never a client-asserted field.</p>
+          </div>
+          <div class="arch-block">
+            <h3>Optimistic concurrency</h3>
+            <p>A server-owned <code>version</code> counter and client-echoed <code>ifVersion</code> guard every write.</p>
+          </div>
+          <div class="arch-block">
+            <h3>SSE broadcast</h3>
+            <p>One-directional, push-only, sent after a mutation actually commits — never speculatively.</p>
+          </div>
+          <div class="arch-block">
+            <h3>Lazy freshness decay</h3>
+            <p>Staleness is checked only on an actual read — never a background timer or a connection event.</p>
+          </div>
+          <div class="arch-block">
+            <h3>One shared renderer</h3>
+            <p>A single Three.js <code>WebGLRenderer</code> serves all seven live 3D facility scenes.</p>
+          </div>
+        </div>
+        <p style="margin-top: 1.25rem;">
+          <a href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/blob/portfolio/docs/portfolio/architecture.md"
+            >Full request/write/broadcast flow →</a
+          >
+        </p>
+      </section>
+
+      <!-- 5. Real-time proof -->
+      <section id="realtime-proof" aria-labelledby="realtime-heading">
+        <p class="eyebrow">Real-time proof</p>
+        <h2 id="realtime-heading">Not an assertion — two sessions, proven live</h2>
+        <p class="proof-flow">Session A reports &rarr; server commits canonical state &rarr; SSE &rarr; Session B updates without reload</p>
+        <p>
+          Both sessions carry distinct, server-issued pseudonyms (visible in each panel below) — proof
+          these are two genuinely independent browsers, not one tab split in half.
+        </p>
+        <div class="proof-media">
+          <img
+            src="/portfolio/screenshots/08-realtime-two-sessions.png"
+            alt="Two independent browser sessions, Toad-1E7DCF and Toad-8146D3, showing the same AA Room Occupied/Karaoke update live over SSE, with no page reload on the receiving session"
+            width="2000"
+            height="619"
+            loading="lazy"
+          />
+        </div>
+      </section>
+
+      <!-- 6. Engineering case studies -->
+      <section id="case-studies" aria-labelledby="case-studies-heading">
+        <p class="eyebrow">Engineering case studies</p>
+        <h2 id="case-studies-heading">Three problems worth telling</h2>
+        <div class="cases">
+          <article class="case-card">
+            <h3><span class="case-label">Case A</span> A CI flake that was a real architectural bug</h3>
+            <p>
+              A docs-only commit failed CI seven times running, always <code>database is locked</code>.
+            </p>
+            <ul>
+              <li>A test importing a room module for its pure decay logic was transitively opening a second live SQLite connection, racing the app's own for the same file lock.</li>
+              <li>Fixed by splitting logic from DB wiring: pure modules take an injected <code>store</code>/<code>now</code> and never touch the database layer.</li>
+              <li>Zero lock errors since, across 15 repeated full test runs — the 264-test suite has stayed stable.</li>
+            </ul>
+            <p class="case-link">
+              <a href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/commit/91167bd2a833c4cbe9d9399e45d8299ea537d16e">Commit 91167bd</a>
+              · <a href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/blob/portfolio/docs/portfolio/case-studies.md">Full write-up →</a>
+            </p>
+          </article>
+          <article class="case-card">
+            <h3><span class="case-label">Case B</span> Concurrency without last-write-wins</h3>
+            <p>Multiple residents can report the same resource at nearly the same moment.</p>
+            <ul>
+              <li>Last-write-wins would silently discard whichever report lost the race, with no signal to either resident.</li>
+              <li>Every mutable resource carries a server-owned <code>version</code>; a <code>PATCH</code> echoes it back as <code>ifVersion</code>.</li>
+              <li>A mismatch is rejected with <code>409</code> and the real canonical state — never a silent overwrite.</li>
+              <li>The server's own lazy decay transition is a canonical mutation too, and is covered by the same check.</li>
+            </ul>
+            <p class="case-link">
+              <a href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/blob/portfolio/notes/adr/0001-realtime-and-concurrent-updates.md">ADR 0001 →</a>
+            </p>
+          </article>
+          <article class="case-card">
+            <h3><span class="case-label">Case C</span> Rat Room's resource granularity</h3>
+            <p>A single room-level occupancy row would have collapsed one occupied seat and ten occupied seats into the same value.</p>
+            <ul>
+              <li>Modeled instead as ten independently-reportable seat resources (A–J), each with its own occupancy, confirmation time, and version.</li>
+              <li>The room-level summary is derived fresh from the ten seats on every read, never persisted as a second fact that could drift.</li>
+              <li>Each seat maps to one fixed 3D workstation, so an occupied seat shows a figure at exactly its own chair.</li>
+            </ul>
+            <p class="case-link">
+              <a href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/blob/portfolio/notes/adr/0008-rat-room-live-state.md">ADR 0008 →</a>
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- 7. Testing & production evidence -->
+      <section id="evidence" aria-labelledby="evidence-heading">
+        <p class="eyebrow">Testing &amp; production evidence</p>
+        <h2 id="evidence-heading">Verified, not asserted</h2>
+        <div class="metric-row">
+          <div class="metric"><span class="num">7</span><span class="label">facilities</span></div>
+          <div class="metric"><span class="num">264</span><span class="label">automated tests</span></div>
+          <div class="metric"><span class="num">22</span><span class="label">spec files</span></div>
+          <div class="metric"><span class="num">10</span><span class="label">laundry machines</span></div>
+          <div class="metric"><span class="num">10</span><span class="label">Rat Room seats</span></div>
+        </div>
+        <ul class="evidence-list">
+          <li>264 automated tests (Vitest) across 22 spec files, run against the same Docker image Fly deploys.</li>
+          <li>CI builds the production container, boots it, runs the full spec suite against it, and scans for committed secrets before any deploy.</li>
+          <li>Verified live at the demo URL: real multi-session SSE checks (shown above) and a genuine server-restart reconnect test.</li>
+          <li>Eight architecture decision records in <code>notes/adr/</code> — two cross-cutting (real-time/concurrency, identity) plus six facility-specific, AA Room through Rat Room; Laundry predates the ADR practice.</li>
+        </ul>
+      </section>
+
+      <!-- 8. Development process -->
+      <section id="process" aria-labelledby="process-heading">
+        <p class="eyebrow">Development process</p>
+        <h2 id="process-heading">ADR first, human review always</h2>
+        <div class="process-steps">
+          <span class="process-step"><strong>1.</strong> ADR</span>
+          <span class="process-step"><strong>2.</strong> Backend</span>
+          <span class="process-step"><strong>3.</strong> Practical panel</span>
+          <span class="process-step"><strong>4.</strong> 3D representation</span>
+          <span class="process-step"><strong>5.</strong> Human visual review</span>
+          <span class="process-step"><strong>6.</strong> Production verification</span>
+        </div>
+        <p>
+          Each facility's state model was decided and written down as an architecture decision record
+          before any backend code, then built out through a practical status panel and a 3D
+          representation. Staged human visual review caught problems automated tests couldn't — a
+          spatially wrong figure, a mislabeled pose — before anything shipped.
+        </p>
+        <p>
+          <a href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/blob/portfolio/PROCESS.md">Read PROCESS.md →</a>
+          ·
+          <a href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/tree/portfolio/notes/adr">Browse the ADRs →</a>
+        </p>
+      </section>
+
+      <!-- 9. Demo reproducibility -->
+      <section id="demo" aria-labelledby="demo-heading">
+        <p class="eyebrow">Demo &amp; reproducibility</p>
+        <h2 id="demo-heading">This demo is generated, not hand-recorded</h2>
+        <p>
+          A script builds the real production app, starts it locally against a throwaway SQLite
+          database, and drives two real Playwright browser sessions through the real UI and API — then
+          composes the result with ffmpeg. Production is never touched.
+        </p>
+        <div class="demo-video">
+          <video
+            controls
+            muted
+            playsinline
+            preload="none"
+            poster="/portfolio/demo/poster.png"
+            width="1280"
+            height="800"
+          >
+            <source src="/portfolio/demo/toad-live-demo.webm" type="video/webm" />
+            <source src="/portfolio/demo/toad-live-demo.mp4" type="video/mp4" />
+          </video>
+        </div>
+        <p class="demo-links">
+          <a href="/portfolio/demo/toad-live-demo.mp4">Full MP4</a>
+          <a href="/portfolio/demo/toad-live-demo.webm">WebM</a>
+          <a href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/blob/portfolio/docs/portfolio/demo/README.md">How it's captured →</a>
+        </p>
+      </section>
+
+      <!-- 10. Footer / CTA -->
+      <footer>
+        <h2>See it live</h2>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://comp4020-final-astra-erevos.fly.dev">Open live demo</a>
+          <a class="btn btn-secondary" href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/tree/portfolio">View repository</a>
+          <a class="btn btn-secondary" href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/blob/portfolio/docs/portfolio/architecture.md">Read architecture</a>
+          <a class="btn btn-secondary" href="https://github.com/comp4020-agentic-coding-studio/comp4020-final-astra-erevos/blob/portfolio/docs/portfolio/case-studies.md">Read case studies</a>
+        </div>
+        <p class="provenance">Built as the COMP8020 Agentic Coding Studio final project at ANU.</p>
+      </footer>
+    </main>
+  </body>
+</html>
