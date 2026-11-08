@@ -1,0 +1,90 @@
+name: portfolio-pages
+
+# Deploys ONLY the static recruiter-facing case-study page to GitHub Pages.
+# Deliberately separate from checks.yml: that workflow builds/tests/deploys
+# the submitted Toad Live app to Fly and only ever runs for `main`. This one
+# only ever runs for `portfolio`, never touches Fly, never has access to
+# FLY_API_TOKEN, and cannot deploy to the submitted app — it has no `env`
+# block referencing that secret and no step that calls flyctl.
+on:
+  push:
+    branches: [portfolio]
+  workflow_dispatch:
+
+# A separate concurrency group from checks.yml's "deploy" group, so a
+# portfolio push can never queue behind, or be blocked by, a Fly deploy.
+concurrency:
+  group: portfolio-pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    # Hard branch gate, independent of the `on.push.branches` filter above,
+    # so a `workflow_dispatch` run (or any future trigger change) still can't
+    # deploy from anywhere but `portfolio`.
+    if: ${{ github.ref == 'refs/heads/portfolio' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+        with:
+          cache: true
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build the static case-study export
+        # astro.config.pages.ts sets site/base for the GitHub Pages project
+        # subpath; this does not touch astro.config.ts or the Fly build.
+        run: npx astro build --config astro.config.pages.ts --outDir dist-pages
+
+      - name: Assemble the Pages artifact
+        # Ship only the prerendered /portfolio/ page, its copied assets, the
+        # Astro-generated CSS it references, and a root redirect into it —
+        # never the server chunks or any API route output.
+        run: |
+          set -eu
+          mkdir -p pages-out
+          cp -r dist-pages/client/portfolio pages-out/portfolio
+          cp -r dist-pages/client/_astro pages-out/_astro
+          cp scripts/portfolio/pages-root-redirect.html pages-out/index.html
+          echo "Pages artifact contents:"
+          find pages-out -type f | sort
+
+      - name: Validate the artifact before publishing
+        run: |
+          set -eu
+          test -f pages-out/index.html
+          test -f pages-out/portfolio/index.html
+          test -f pages-out/portfolio/architecture.svg
+          test -f pages-out/portfolio/demo/poster.png
+          test -f pages-out/portfolio/demo/toad-live-demo.mp4
+          test -f pages-out/portfolio/demo/toad-live-demo.webm
+          test -f pages-out/portfolio/demo/toad-live-demo.gif
+          grep -q 'comp4020-final-astra-erevos.fly.dev' pages-out/portfolio/index.html
+          echo "Artifact looks complete; live-demo CTA points at the submitted Fly app."
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-out
+
+  deploy:
+    needs: build
+    if: ${{ github.ref == 'refs/heads/portfolio' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Report the deployed URL
+        run: echo "Recruiter case study deployed to ${{ steps.deployment.outputs.page_url }}"
