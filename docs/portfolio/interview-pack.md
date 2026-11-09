@@ -39,9 +39,12 @@ forever."
 "It's built with Astro and Node, one server process, talking to SQLite on
 a single persistent volume on Fly.io — there's no separate database
 server. There are seven facilities: laundry, which has ten machines
-across five physical locations, four single-state rooms like a study room
-and a music room, and a computer lab called Rat Room that's modeled as
-ten independently-reportable seats rather than one room-level flag.
+across five physical locations; AA Room, the common room, where
+occupancy can coexist with more than one activity tag at once, like
+watching TV and playing pool at the same time; four single-row occupancy
+rooms — a study room, a shared-meals room, a music room, a formal
+meeting room; and a computer lab called Rat Room that's modeled as ten
+independently-reportable seats rather than one room-level flag.
 
 The core design problem was this: a resident's report is the only source
 of truth, and it goes stale. So every mutable resource — a machine, a
@@ -118,8 +121,9 @@ that physically impossible, not just discouraged by convention.
 I verified it by running the full check suite fifteen times in a row, and
 running the three affected decay spec files together fifteen more times,
 plus a built-and-served smoke test. Zero lock errors since, and the same
-pattern was reused for every room added afterward, including Rat Room,
-which has six decay spec files running in parallel today with zero
+pattern was reused for every room added afterward. By the time Rat Room
+shipped — the sixth room to use this pattern — six independent per-room
+decay spec files were running together in the suite with zero lock
 failures."
 
 **Evidence in the repo:**
@@ -521,7 +525,7 @@ because that's complexity the current deployment doesn't need."
 - "SQLite serializes them — one succeeds, the other waits briefly or gets a 'database is locked' error if it times out. In this app's own history, that exact error surfaced not from real contention but from a test accidentally opening a second connection, which I fixed at the architecture level rather than by papering over lock contention."
 - "It depends entirely on the actual load and availability needs. For one machine serving a bounded community, it's a sound choice, not a risk — the risk would be using it for something that needed horizontal scaling and expecting it to just work."
 - "I'd export the SQLite file's rows, stand up Postgres, and write a one-time migration script — the schema here is simple enough that this wouldn't be a large effort, since there's no complex relational structure to remap."
-- "Just the app's own SQLite file holding all the live status rows — no uploaded user content, no logs, nothing else persisted there."
+- "Two kinds of rows, both in that one SQLite file: the live status rows — one per machine, one per single-state room, ten per Rat Room's seats — and a separate `sessions` table holding each pseudonymous session's internal id, its pseudonym, and a hashed session credential, never the raw token itself. No uploaded user content, no logs, nothing else persisted there."
 
 **Weak answer to avoid:**
 
@@ -1186,7 +1190,7 @@ suspicion alone.
 
 ## 5. Preparation notes
 
-**Word count:** approximately 12,460 words.
+**Word count:** approximately 12,700 words.
 
 **Topics covered:** all 12 requested interview questions (A–L), 8
 system-design challenge questions, a code-navigation table covering 7
@@ -1232,3 +1236,18 @@ answer blurred write and read semantics for decay — corrected to "whenever
 a resource is read, the server first checks whether its last confirmed
 state has decayed," matching `decayed()`'s actual read-triggered
 implementation in `src/lib/db.ts`.
+
+**Second correction pass:** three more issues fixed. (1) Topic A's
+2-minute answer enumerated only six of seven facilities, omitting AA
+Room entirely — corrected to name all seven explicitly, including AA
+Room's multi-activity occupancy. (2) The SQLite lock-race story's closing
+line — "including Rat Room, which has six decay spec files running in
+parallel" — read as though Rat Room alone owned six files; corrected to
+state plainly that six independent per-room decay spec files (one each
+for AA, Otter, Rabbit, Weasel, Badger, Rat) existed in total by the time
+Rat Room shipped. (3) Topic G's "what's stored on the Fly volume" answer
+claimed it was "just the live status rows," which is incomplete —
+`db/schema.sql` was read directly and confirms a `sessions` table also
+lives in the same SQLite file, holding each session's internal id,
+pseudonym, and hashed token (never the raw token). The answer now names
+both the status rows and the sessions table.
